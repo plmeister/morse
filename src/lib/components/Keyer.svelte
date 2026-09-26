@@ -1,14 +1,10 @@
 <script lang="ts">
 	import Pattern from './Pattern.svelte';
 	import { keyer } from '$lib/keyer.svelte';
-	import { settings } from '$lib/settings.svelte';
-	import { dashThreshold } from '$lib/timing';
 
 	let { onsend }: { onsend?: () => void } = $props();
 
 	const snap = $derived(keyer.snapshot);
-	const threshold = $derived(dashThreshold(settings.timings));
-	const charGap = $derived(settings.timings.charGapMs);
 
 	// --- keyboard keying ---------------------------------------------------
 	// Any key keys, like a real straight key. Suppressed while typing so the
@@ -64,37 +60,49 @@
 		{/if}
 	</div>
 
-	<!-- The character just committed, with the two ways to take it back. A slow
-	     pause inside a character splits it in two, and these are how you put it
-	     back together. -->
-	{#if snap.lastChar}
-		<div class="last">
-			<span class="last-label">last</span>
+	<!-- The character just committed. A slow pause inside a character splits it in
+	     two, and the two buttons below are how you put it back together.
+
+	     Both rows are always rendered rather than appearing with the first
+	     character. They sit in the docked console, so a conditional row resized the
+	     panel under the finger and yanked the page above it every time something was
+	     keyed. The buttons carry their own disabled state.
+
+	     The buttons are on their own row because the character, its code and the
+	     two labels do not fit across a narrow console: sharing one row squeezed the
+	     character down to a couple of pixels and clipped it. -->
+	<div class="last" class:empty={!snap.lastChar}>
+		<span class="last-label">last</span>
+		{#if snap.lastChar}
 			<span class="last-char">{snap.lastChar}</span>
 			{#if snap.lastPattern}
 				<Pattern pattern={snap.lastPattern} size="sm" />
 			{/if}
-			<span class="spacer"></span>
-			<button
-				class="btn tiny"
-				type="button"
-				disabled={!snap.canMerge}
-				onclick={() => keyer.mergeLast()}
-				title="Put it back in the buffer and carry on keying (Shift+Backspace)"
-			>
-				&#8617; Merge
-			</button>
-			<button
-				class="btn tiny"
-				type="button"
-				disabled={!snap.canDelete}
-				onclick={() => keyer.deleteLast()}
-				title="Delete it (Backspace)"
-			>
-				&#10005; Delete
-			</button>
-		</div>
-	{/if}
+		{:else}
+			<span class="last-char none">&mdash;</span>
+		{/if}
+	</div>
+
+	<div class="takeback">
+		<button
+			class="btn"
+			type="button"
+			disabled={!snap.canMerge}
+			onclick={() => keyer.mergeLast()}
+			title="Put it back in the buffer and carry on keying (Shift+Backspace)"
+		>
+			&#8617; Merge
+		</button>
+		<button
+			class="btn"
+			type="button"
+			disabled={!snap.canDelete}
+			onclick={() => keyer.deleteLast()}
+			title="Delete it (Backspace)"
+		>
+			&#10005; Delete
+		</button>
+	</div>
 
 	<!-- What is being keyed right now -->
 	<div class="live">
@@ -129,7 +137,7 @@
 	.keyer {
 		display: flex;
 		flex-direction: column;
-		gap: 0.7rem;
+		gap: 0.5rem;
 	}
 
 	.output {
@@ -167,7 +175,7 @@
 		display: flex;
 		align-items: center;
 		gap: 0.45rem;
-		padding: 0.35rem 0.5rem 0.35rem 0.75rem;
+		padding: 0.25rem 0.5rem 0.25rem 0.75rem;
 		background: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
@@ -180,7 +188,17 @@
 		color: var(--faint);
 	}
 
+	.last.empty {
+		opacity: 0.5;
+	}
+
+	.last-char.none {
+		color: var(--faint);
+		font-weight: 400;
+	}
+
 	.last-char {
+		flex: none;
 		font-size: 1.05rem;
 		font-weight: 650;
 		color: var(--text);
@@ -188,22 +206,23 @@
 		text-align: center;
 	}
 
-	.spacer {
-		flex: 1;
+	.takeback {
+		display: flex;
+		gap: 0.4rem;
 	}
 
-	.btn.tiny {
-		flex: none;
-		min-height: 1.9rem;
-		padding: 0 0.5rem;
-		font-size: 0.78rem;
+	.takeback .btn {
+		flex: 1;
+		min-height: 2rem;
+		font-size: 0.85rem;
+		padding: 0 0.4rem;
 	}
 
 	.live {
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		padding: 0.5rem 0.75rem;
+		padding: 0.4rem 0.75rem;
 		background: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);

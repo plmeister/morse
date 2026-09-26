@@ -399,8 +399,13 @@
 			display: grid;
 			/* One column of scrolling content, one tall column for the console and
 			   the key. The side column spans both rows, so the key takes the whole
-			   height of the window with the console sitting directly above it. */
-			grid-template-columns: minmax(0, 1fr) clamp(13rem, 24vw, 19rem);
+			   height of the window with the console sitting directly above it.
+
+			   The side column is sized in rem, not vw: the app has a max-width, so a
+			   viewport-relative column grew with the window while the app stayed
+			   put, leaving less and less room for the content as the screen got
+			   wider. Rem keeps the split the same on every screen. */
+			grid-template-columns: minmax(0, 1fr) clamp(13rem, 22vw, 17rem);
 			grid-template-rows: auto minmax(0, 1fr);
 			grid-template-areas:
 				'header side'
@@ -408,6 +413,14 @@
 			padding: 0.75rem 0.85rem;
 			padding-left: max(0.85rem, env(safe-area-inset-left));
 			padding-right: max(0.85rem, env(safe-area-inset-right));
+		}
+
+		/* A wide screen has room for a wider app, so the scrolling column gets
+		   more space instead of the empty margins either side. */
+		@media (min-width: 1024px) {
+			.app {
+				max-width: 56rem;
+			}
 		}
 
 		header {
