@@ -218,7 +218,11 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(4.7rem, 1fr));
+		/* Five across on a phone, which is what makes 26 letters six rows and
+		   nearly a screenful. The floor is sized for the narrowest phone in the
+		   matrix, so a wider screen just fits more columns and the sheet still
+		   gets shorter as the window grows. */
+		grid-template-columns: repeat(auto-fill, minmax(3.6rem, 1fr));
 		gap: 0.3rem;
 	}
 
@@ -249,6 +253,20 @@
 			opacity 0.14s,
 			background 0.14s,
 			border-color 0.14s;
+	}
+
+	/* A phone: the cells give up some padding so all 26 letters come to six rows
+	   and clear the docked console without scrolling. The text is not shrunk, only
+	   the box around it. */
+	@media (max-width: 480px) {
+		ul {
+			gap: 0.25rem;
+		}
+
+		.cell {
+			min-height: 2.7rem;
+			padding: 0.3rem 0.2rem 0.25rem;
+		}
 	}
 
 	/* A cell that can still become the answer stays lit; the rest recede so the
