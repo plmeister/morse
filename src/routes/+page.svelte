@@ -340,6 +340,24 @@
 		font-weight: 600;
 	}
 
+	/* A short screen: the title and the tabs share one line, so the cheat sheet
+	   gets the height back. */
+	@media (max-height: 700px) {
+		header {
+			gap: 0.4rem;
+		}
+
+		h1 {
+			font-size: 1rem;
+		}
+
+		.tab {
+			min-height: 1.9rem;
+			padding: 0 0.5rem;
+			font-size: 0.8rem;
+		}
+	}
+
 	.badge {
 		min-width: 1.15rem;
 		height: 1.15rem;

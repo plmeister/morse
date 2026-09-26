@@ -24,13 +24,11 @@
 			keyer.clear();
 			return;
 		}
-		// Backspace pulls a character back / drops it. Both are longer than one
-		// character, so they are handled before the "any key keys" rule below
-		// would ignore them anyway.
+		// Backspace drops the last character. It is longer than one character, so it
+		// is handled before the "any key keys" rule below would ignore it anyway.
 		if (e.key === 'Backspace') {
 			e.preventDefault();
-			if (e.shiftKey) keyer.mergeLast();
-			else keyer.deleteLast();
+			keyer.deleteLast();
 			return;
 		}
 		// Let the browser keep its own shortcuts (tab, devtools, reload).
@@ -60,17 +58,14 @@
 		{/if}
 	</div>
 
-	<!-- The character just committed. A slow pause inside a character splits it in
-	     two, and the two buttons below are how you put it back together.
+	<!-- The character just committed, and the one control that takes it back.
+	     Always rendered rather than appearing with the first character: this row
+	     sits in the docked console, so a conditional row resized the panel under
+	     the finger and yanked the page above it every time something was keyed.
 
-	     Both rows are always rendered rather than appearing with the first
-	     character. They sit in the docked console, so a conditional row resized the
-	     panel under the finger and yanked the page above it every time something was
-	     keyed. The buttons carry their own disabled state.
-
-	     The buttons are on their own row because the character, its code and the
-	     two labels do not fit across a narrow console: sharing one row squeezed the
-	     character down to a couple of pixels and clipped it. -->
+	     The delete button is a bare cross because the row already says which
+	     character it will remove, and a worded button did not fit beside the
+	     label, the character and its code in a narrow console. -->
 	<div class="last" class:empty={!snap.lastChar}>
 		<span class="last-label">last</span>
 		{#if snap.lastChar}
@@ -81,26 +76,16 @@
 		{:else}
 			<span class="last-char none">&mdash;</span>
 		{/if}
-	</div>
-
-	<div class="takeback">
+		<span class="spacer"></span>
 		<button
-			class="btn"
-			type="button"
-			disabled={!snap.canMerge}
-			onclick={() => keyer.mergeLast()}
-			title="Put it back in the buffer and carry on keying (Shift+Backspace)"
-		>
-			&#8617; Merge
-		</button>
-		<button
-			class="btn"
+			class="btn drop"
 			type="button"
 			disabled={!snap.canDelete}
 			onclick={() => keyer.deleteLast()}
+			aria-label="Delete the last character"
 			title="Delete it (Backspace)"
 		>
-			&#10005; Delete
+			&#10005;
 		</button>
 	</div>
 
@@ -137,14 +122,17 @@
 	.keyer {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.45rem;
 	}
 
 	.output {
-		min-height: 3.4rem;
+		/* Sized so one line of text is no taller than the empty box: this console
+		   is docked, and a min-height that a single line overhung made the panel
+		   jump the first time a character was committed. */
+		min-height: 2.9rem;
 		display: flex;
 		align-items: center;
-		font-size: 1.5rem;
+		font-size: 1.25rem;
 		font-weight: 500;
 		line-height: 1.35;
 		word-break: break-word;
@@ -206,23 +194,27 @@
 		text-align: center;
 	}
 
-	.takeback {
-		display: flex;
-		gap: 0.4rem;
+	.spacer {
+		flex: 1 1 0;
+		min-width: 0;
 	}
 
-	.takeback .btn {
-		flex: 1;
-		min-height: 2rem;
-		font-size: 0.85rem;
-		padding: 0 0.4rem;
+	.btn.drop {
+		flex: none;
+		display: grid;
+		place-items: center;
+		width: 2.1rem;
+		height: 2.1rem;
+		padding: 0;
+		font-size: 0.9rem;
+		line-height: 1;
 	}
 
 	.live {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 0.4rem 0.75rem;
+		gap: 0.6rem;
+		padding: 0.3rem 0.6rem;
 		background: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
@@ -230,8 +222,8 @@
 
 	.live-char {
 		flex: none;
-		width: 2.6rem;
-		height: 2.6rem;
+		width: 2.2rem;
+		height: 2.2rem;
 		display: grid;
 		place-items: center;
 		border-radius: 10px;
@@ -271,6 +263,40 @@
 		flex: 1;
 		font-size: 0.85rem;
 		padding: 0 0.4rem;
+	}
+
+	/* A short screen cannot spare the room. The output's text is sized to fit its
+	   own box here too, so the console does not jump when the first character
+	   lands. */
+	@media (max-height: 700px) {
+		.keyer {
+			gap: 0.35rem;
+		}
+
+		.output {
+			min-height: 2.5rem;
+			padding: 0.35rem 0.6rem;
+			font-size: 1.1rem;
+		}
+
+		.last {
+			padding: 0.2rem 0.4rem 0.2rem 0.6rem;
+		}
+
+		.live {
+			padding: 0.25rem 0.5rem;
+		}
+
+		.live-char {
+			width: 1.95rem;
+			height: 1.95rem;
+			font-size: 1.15rem;
+		}
+
+		.btn.drop {
+			width: 1.95rem;
+			height: 1.95rem;
+		}
 	}
 
 

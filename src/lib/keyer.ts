@@ -17,10 +17,8 @@ export type KeyerSnapshot = {
 	output: string;
 	/** The most recently completed character. */
 	lastChar: string | undefined;
-	/** Pattern of the most recently completed character, for merging back. */
+	/** Pattern of the most recently completed character, shown in the console. */
 	lastPattern: string | undefined;
-	/** True when the last character can still be pulled back into the buffer. */
-	canMerge: boolean;
 	/** True when there is a committed character to delete. */
 	canDelete: boolean;
 	pressing: boolean;
@@ -98,7 +96,6 @@ export class Keyer {
 			output: this.output,
 			lastChar: this.lastChar,
 			lastPattern: this.lastPattern,
-			canMerge: this.buffer === '' && this.lastPattern !== undefined,
 			canDelete: this.output.length > 0,
 			pressing: this.pressing,
 		};
@@ -177,26 +174,6 @@ export class Keyer {
 	/** Commit whatever is pending immediately (e.g. on blur or mode change). */
 	flush() {
 		if (this.buffer) this.#commitChar();
-	}
-
-	/**
-	 * Pull the last committed character back into the buffer so the next press
-	 * continues it.
-	 *
-	 * Telling a one-unit pause from a three-unit one by hand is genuinely hard,
-	 * so keying ".-" slowly commits as "ET" rather than "A". Rather than guess,
-	 * the split stays reversible: this puts the user back in control of where the
-	 * character boundary belongs.
-	 */
-	mergeLast() {
-		if (this.buffer || this.lastPattern === undefined) return;
-		this.#cancelTimers();
-		const pattern = this.lastPattern;
-		this.buffer = pattern;
-		this.lastChar = undefined;
-		this.lastPattern = undefined;
-		this.output = trimLastChar(this.output);
-		this.#emit();
 	}
 
 	/** Drop the last committed character entirely. */

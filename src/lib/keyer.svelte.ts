@@ -11,7 +11,6 @@ function emptySnapshot(): KeyerSnapshot {
 		output: '',
 		lastChar: undefined,
 		lastPattern: undefined,
-		canMerge: false,
 		canDelete: false,
 		pressing: false,
 	};
@@ -100,10 +99,6 @@ class ReactiveKeyer {
 
 	flush() {
 		this.#keyer.flush();
-	}
-
-	mergeLast() {
-		this.#keyer.mergeLast();
 	}
 
 	deleteLast() {

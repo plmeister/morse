@@ -280,47 +280,6 @@ describe('taking a character back', () => {
 		expect(env.keyer.snapshot.output).toBe('ET');
 	});
 
-	it('merges them back into one character', () => {
-		const env = slowA();
-		env.keyer.mergeLast();
-		expect(env.keyer.snapshot.output).toBe('E');
-		expect(env.keyer.snapshot.buffer).toBe('-');
-		expect(env.keyer.snapshot.live).toBe('T');
-	});
-
-	it('carries on keying after a merge to reach the intended character', () => {
-		const env = slowA();
-		env.keyer.mergeLast();
-		env.keyer.clear();
-		// Rebuild ".-" the intended way: dot, dash, no long pause in between.
-		const fresh = createTestKeyer();
-		tap(fresh, 60);
-		tap(fresh, 250);
-		fresh.advance(300);
-		expect(fresh.keyer.snapshot.output).toBe('A');
-		expect(env.keyer.snapshot.canMerge).toBe(false);
-	});
-
-	it('refuses to merge while a character is being keyed', () => {
-		const env = createTestKeyer();
-		tap(env, 60);
-		env.advance(300);
-		tap(env, 60);
-		expect(env.keyer.snapshot.buffer).toBe('.');
-		env.keyer.mergeLast();
-		expect(env.keyer.snapshot.buffer).toBe('.');
-		expect(env.keyer.snapshot.output).toBe('E');
-	});
-
-	it('reports when a merge is possible', () => {
-		const env = createTestKeyer();
-		expect(env.keyer.snapshot.canMerge).toBe(false);
-		tap(env, 60);
-		env.advance(300);
-		expect(env.keyer.snapshot.canMerge).toBe(true);
-		expect(env.keyer.snapshot.lastPattern).toBe('.');
-	});
-
 	it('deletes the last character outright', () => {
 		const env = createTestKeyer();
 		tap(env, 60);
@@ -336,7 +295,7 @@ describe('taking a character back', () => {
 		expect(env.keyer.snapshot.canDelete).toBe(false);
 	});
 
-	it('does not offer a merge for a pattern that is not a character', () => {
+	it('commits nothing for a pattern that is not a character', () => {
 		const env = createTestKeyer();
 		// Six dots is not a code, so nothing is committed and there is nothing
 		// to pull back into the buffer.
@@ -344,23 +303,12 @@ describe('taking a character back', () => {
 		env.advance(300);
 		expect(env.keyer.snapshot.output).toBe('');
 		expect(env.keyer.snapshot.lastPattern).toBeUndefined();
-		expect(env.keyer.snapshot.canMerge).toBe(false);
 		expect(env.keyer.snapshot.canDelete).toBe(false);
 	});
 
-	it('cancels a pending word gap when merging', () => {
-		const env = createTestKeyer();
-		tap(env, 250); // T
-		env.advance(300);
-		env.keyer.mergeLast();
-		// Long past where a word gap would have fired.
-		env.advance(1000);
-		expect(env.keyer.snapshot.output).toBe('');
-		expect(env.keyer.snapshot.buffer).toBe('-');
-	});
 });
 
-describe('merging and deleting after a word gap', () => {
+describe('deleting after a word gap', () => {
 	// A word gap can land a trailing space after the last character. Taking that
 	// character back has to remove the character, not the space in front of it.
 	function withTrailingSpace() {
@@ -374,16 +322,6 @@ describe('merging and deleting after a word gap', () => {
 
 	it('a word gap leaves a trailing space', () => {
 		expect(withTrailingSpace().keyer.snapshot.output).toBe('E T ');
-	});
-
-	it('merge removes the character and not the space', () => {
-		const env = withTrailingSpace();
-		env.keyer.mergeLast();
-		// The word gap the user actually made between E and T stays put; only the
-		// T is taken back. Before the fix this was "E T", i.e. the space went and
-		// the character stayed.
-		expect(env.keyer.snapshot.output).toBe('E ');
-		expect(env.keyer.snapshot.buffer).toBe('-');
 	});
 
 	it('delete removes the character and not the space', () => {

@@ -81,10 +81,14 @@
 		align-items: center;
 		justify-content: center;
 		width: 100%;
-		/* Tall enough to hit without looking, and it grows with the screen rather
+		/* Big enough to hit without looking, and it grows with the screen rather
 		   than sitting at a fixed size that is too small on a tablet and silly on a
-		   desktop. Capped so it never swallows the page above it. */
-		height: clamp(6rem, 24dvh, 11rem);
+		   desktop.
+
+		   Kept modest on a phone held upright: this is a bottom dock, so every
+		   pixel here comes straight out of the cheat sheet above, and the button
+		   sits under a thumb rather than needing to be aimed at. */
+		height: clamp(4.75rem, 16dvh, 8.5rem);
 		border-radius: var(--radius-lg);
 		border: 1px solid var(--key-edge);
 		background: linear-gradient(180deg, var(--key-face), var(--key-face-2));
@@ -123,6 +127,15 @@
 	   which of two states the key is in. */
 	.key.down .key-label {
 		letter-spacing: 0.2em;
+	}
+
+	/* A short screen, held upright, has the least to spare: the key is still a
+	   comfortable target under a thumb, but it stops competing with the cheat
+	   sheet for the height. */
+	@media (max-height: 700px) and (orientation: portrait) {
+		.key {
+			height: clamp(3.75rem, 13dvh, 6rem);
+		}
 	}
 
 	/* Wide enough for a second column: the page puts the key in a full height
