@@ -1,0 +1,69 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # A pull request gets checked without deploying anything.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. A second push replaces the first rather than racing
+# it, which is what you want for a static site.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    # The deploy waits on this, so a broken build never reaches Pages. On a pull
+    # request this is the whole job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  build:
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          # The site is served from https://plmeister.github.io/morse/, so every
+          # asset URL and route has to carry the repository name. SvelteKit wants
+          # the base with no trailing slash and adds one itself.
+          BASE_PATH: /morse
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          # Only the built site. The default is the whole checkout, which would
+          # publish the source and node_modules as well.
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
