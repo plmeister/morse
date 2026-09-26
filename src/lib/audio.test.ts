@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { envelopeEnd, playEnvelope, unitsForText } from './audio';
+import { envelopeEnd, playEnvelope, unitsForText, type EnvelopeSegment } from './audio';
 import { timingsForWpm, type Timings } from './timing';
 
 const t: Timings = timingsForWpm(15);
@@ -41,11 +41,13 @@ describe('unitsForText', () => {
 
 describe('playback envelope', () => {
 	const t = timingsForWpm(15);
+	/** The last segment. Every envelope under test has at least one. */
+	const lastOf = (segments: EnvelopeSegment[]) => segments[segments.length - 1] as EnvelopeSegment;
 
 	it('starts and ends at silence', () => {
 		const env = playEnvelope(unitsForText('SOS', t), t, 0.5, 1);
 		expect(env[0].from).toBe(0);
-		expect(env.at(-1).to).toBe(0);
+		expect(lastOf(env).to).toBe(0);
 	});
 
 	it('never jumps: each segment starts where the last one ended', () => {
@@ -85,8 +87,7 @@ describe('playback envelope', () => {
 		// The gap that follows the last code is silence, not tone, so the sound
 		// must already be finished by the time the run is.
 		const units = unitsForText('SOS', t);
-		const env = playEnvelope(units, t, 0.5, 10);
-		const last = env.at(-1);
+		const last = lastOf(playEnvelope(units, t, 0.5, 10));
 		expect(last.to).toBe(0);
 		expect(last.at + last.seconds).toBeLessThanOrEqual(10 + envelopeEnd(units, t) + 0.001);
 	});
