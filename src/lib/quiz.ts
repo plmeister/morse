@@ -53,8 +53,8 @@ function rng(): number {
 	return Math.random();
 }
 
-function pick<T>(items: T[]): T {
-	return items[Math.floor(rng() * items.length)];
+function pick<T>(items: T[], random: () => number = rng): T {
+	return items[Math.floor(random() * items.length)];
 }
 
 /** Characters the quiz is allowed to ask about, given the pool toggles. */
@@ -87,7 +87,7 @@ export function nextQuestion(opts: {
 }): Question {
 	const random = opts.random ?? rng;
 	const chars = pool(opts.groups);
-	const solution = opts.mode === 'char' ? pickWeighted(chars, opts.stats, random) : pick(WORDS);
+	const solution = opts.mode === 'char' ? pickWeighted(chars, opts.stats, random) : pick(WORDS, random);
 
 	const solutionPattern = encode(solution) ?? '';
 	const charsInMessage: MorseChar[] = encodeText(solution)[0]?.chars ?? [];

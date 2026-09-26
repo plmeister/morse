@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultGroups, nextQuestion, pickWeighted, pool, summarise } from './quiz';
-import { GROUPS, encode } from './morse';
+import { GROUPS, encode, type MorseGroup } from './morse';
 import type { StatsShape } from './stats.svelte';
 import { needScore, type CharStat } from './stats.svelte';
 
@@ -206,11 +206,22 @@ describe('nextQuestion', () => {
 
 	it('builds a word question from a word', () => {
 		const q = nextQuestion({ groups: ['letters'], mode: 'word', choices: 4, stats: emptyStats(), random: seeded(17) });
-		expect(q.text).toBeTruthy();
-		expect(q.text!.length).toBeGreaterThan(1);
+		expect(q.text).toMatch(/^[A-Z0-9]+$/);
 		expect(q.solution).toBe(q.text);
 		expect(q.chars.length).toBe(q.text!.length);
 		expect(q.pattern).toBe(q.chars.map((c) => c.pattern).join(' '));
+	});
+
+	it('is reproducible from its seed', () => {
+		// Every draw has to come from the injected generator. When the word was
+		// picked from the global one, the same seed gave a different question each
+		// run, which is what made this suite fail now and then in CI.
+		const opts = { groups: ['letters'] as MorseGroup[], mode: 'word' as const, choices: 4, stats: emptyStats() };
+		const a = nextQuestion({ ...opts, random: seeded(17) });
+		const b = nextQuestion({ ...opts, random: seeded(17) });
+		expect(a.solution).toBe(b.solution);
+		expect(a.options).toEqual(b.options);
+		expect(a.answerIndex).toBe(b.answerIndex);
 	});
 
 	it('only uses digits and punctuation when enabled', () => {
