@@ -1,11 +1,31 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import Pattern from './Pattern.svelte';
 	import { encode, extensions, GROUPS, GROUP_LABELS, type MorseGroup } from '$lib/morse';
 	import { needScore, type StatsShape } from '$lib/stats.svelte';
 	import { settings } from '$lib/settings.svelte';
 	import { tone } from '$lib/audio';
 	import { cheatSections, type SectionId } from '$lib/cheat.svelte';
+
+	/**
+	 * Dead-end dimming lives in CSS, driven by one attribute per group rather
+	 * than a class on every cell. Writing a class to all of them twice a tap was
+	 * the single largest cost of keying, and it showed up as a laggy key on an
+	 * older phone, so the reachable set goes on the list and the rules below
+	 * light up whichever cells are still possible.
+	 */
+	onMount(() => {
+		const style = document.createElement('style');
+		style.textContent = [...new Set(Object.values(GROUPS).flat())]
+			.map((char) => {
+				// Both sides are attribute values, so quote them; a double quote
+				// in the table would otherwise close the string early.
+				const quote = char === '"' ? "'" : '"';
+				return `.cheat [data-keying~=${quote}${char}${quote}] [data-ch=${quote}${char}${quote}] {\n\topacity: 1;\n\tborder-color: var(--border-strong);\n}`;
+			})
+			.join('\n');
+		document.head.append(style);
+	});
 
 	type Props = {
 		/** The code being keyed right now, used to highlight what is still reachable. */
@@ -42,6 +62,16 @@
 
 	// Recomputed only when the buffer changes, not on every parent update.
 	const live = $derived(buffer ? new Set(extensions(buffer)) : null);
+
+	/**
+	 * The characters in one group that the buffer can still reach, as a
+	 * space-separated list for the CSS rules to match. Absent when there is
+	 * nothing to dim, so the sheet stays fully lit at rest.
+	 */
+	function liveKey(group: MorseGroup): string | undefined {
+		if (!dimDeadEnds || !live) return undefined;
+		return GROUPS[group].filter((char) => live.has(char)).join(' ');
+	}
 
 	let playing = $state<string | undefined>(undefined);
 
@@ -108,16 +138,14 @@
 				<span class="section-title">{GROUP_LABELS[group]}</span>
 				<span class="count">{GROUPS[group].length}</span>
 			</summary>
-			<ul data-group={group} style:grid-template-columns={columns(group)}>
+			<ul data-group={group} data-keying={liveKey(group)} style:grid-template-columns={columns(group)}>
 				{#each GROUPS[group] as char (char)}
 					{@const need = needFor(char)}
-					{@const reachable = live === null || live.has(char)}
 					<li>
 						<button
 							type="button"
 							class="cell"
-							class:live={reachable}
-							class:dim={dimDeadEnds && !reachable}
+							data-ch={char}
 							class:flash={flash === char}
 							class:playing={playing === char}
 							aria-current={flash === char}
@@ -249,10 +277,11 @@
 		border-radius: 10px;
 		border: 1px solid var(--border);
 		background: var(--surface);
-		transition:
-			opacity 0.14s,
-			background 0.14s,
-			border-color 0.14s;
+		/* Only the background fades. Opacity and border-color are left off on
+		   purpose: they change on about half the sheet with every element keyed,
+		   and animating them cost twice the latency of a press on a throttled
+		   CPU, which is what made the key feel stuck on an older phone. */
+		transition: background 0.14s;
 	}
 
 	/* A phone: the cells give up some padding so all 26 letters come to six rows
@@ -267,16 +296,6 @@
 			min-height: 2.7rem;
 			padding: 0.3rem 0.2rem 0.25rem;
 		}
-	}
-
-	/* A cell that can still become the answer stays lit; the rest recede so the
-	   eye is pulled to the few options still open. */
-	.cell.dim {
-		opacity: 0.22;
-	}
-
-	.cell.live {
-		border-color: var(--border-strong);
 	}
 
 	.cell.flash {

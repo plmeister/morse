@@ -290,3 +290,13 @@ input[type='radio'] {
 		transition-duration: 0.001ms !important;
 	}
 }
+
+/* Dead-end dimming for the cheat sheet. The reachable set arrives as one
+   attribute per group, so keying writes three attributes instead of rewriting
+   the class of every cell; the per-character rules that lift the still
+   possible ones back to full opacity are installed by CheatSheet. A cell that
+   can still become the answer stays lit; the rest recede so the eye is pulled
+   to the few options still open. */
+.cheat [data-keying] .cell {
+	opacity: 0.22;
+}
