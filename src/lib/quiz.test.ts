@@ -5,11 +5,22 @@ import type { StatsShape } from './stats.svelte';
 import { needScore, type CharStat } from './stats.svelte';
 
 /** Deterministic PRNG so failures are reproducible. */
+/**
+ * A small deterministic generator, so a failure can be reproduced from its seed.
+ *
+ * This is mulberry32 rather than a plain LCG because an LCG's first output
+ * barely moves with its seed: the old one returned 0.2365 to 0.2380 across
+ * seeds 1 to 60, so every seeded question was drawing almost the same word and
+ * a loop over sixty seeds was really testing two or three cases.
+ */
 function seeded(seed: number): () => number {
-	let s = seed >>> 0;
+	let a = (seed + 0x6d2b79f5) >>> 0;
 	return () => {
-		s = (s * 1664525 + 1013904223) >>> 0;
-		return s / 0x1_0000_0000;
+		a = (a + 0x6d2b79f5) >>> 0;
+		let t = a;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 0x1_0000_0000;
 	};
 }
 
@@ -222,6 +233,79 @@ describe('nextQuestion', () => {
 		expect(a.solution).toBe(b.solution);
 		expect(a.options).toEqual(b.options);
 		expect(a.answerIndex).toBe(b.answerIndex);
+	});
+
+	it('offers words of much the same length in word mode', () => {
+		// The point of the ranking: a group is not identifiable by counting
+		// characters, so no alternative may be a wildly different size.
+		const bare = (w: string) => w.replace(/\s/g, '').length;
+		for (let seed = 1; seed <= 60; seed++) {
+			const q = nextQuestion({
+				groups: ['letters'],
+				mode: 'word',
+				choices: 4,
+				stats: emptyStats(),
+				random: seeded(seed),
+			});
+			const answer = bare(q.solution);
+			for (const o of q.options) {
+				expect(
+					Math.abs(bare(o.char) - answer),
+					`seed ${seed}: ${q.solution} against ${o.char}`,
+				).toBeLessThanOrEqual(2);
+			}
+		}
+	});
+
+	it('keeps every word option a real word', () => {
+		for (let seed = 1; seed <= 40; seed++) {
+			const q = nextQuestion({
+				groups: ['letters'],
+				mode: 'word',
+				choices: 4,
+				stats: emptyStats(),
+				random: seeded(seed),
+			});
+			for (const o of q.options) expect(o.char).toMatch(/^[A-Z0-9]+( [A-Z0-9]+)*$/);
+		}
+	});
+
+	it('draws the whole group for word mode, spaces included', () => {
+		let sawGap = false;
+		for (let seed = 1; seed <= 60 && !sawGap; seed++) {
+			const q = nextQuestion({
+				groups: ['letters'],
+				mode: 'word',
+				choices: 4,
+				stats: emptyStats(),
+				random: seeded(seed),
+			});
+			expect(q.text).toBe(q.solution);
+			expect(q.chars).toHaveLength(q.solution.replace(/\s/g, '').length);
+			expect(q.groups.map((g) => g.word).join(' ')).toBe(q.solution);
+			// A group is drawn with a slash where the word gap is.
+			if (q.solution.includes(' ')) {
+				sawGap = true;
+				expect(q.pattern).toContain('/');
+				expect(q.options[q.answerIndex].pattern).toBe(q.pattern);
+			}
+		}
+		expect(sawGap, 'a group with a space came up in 60 draws').toBe(true);
+	});
+
+	it('includes the word answer exactly once', () => {
+		for (let seed = 1; seed <= 60; seed++) {
+			const q = nextQuestion({
+				groups: ['letters'],
+				mode: 'word',
+				choices: 4,
+				stats: emptyStats(),
+				random: seeded(seed),
+			});
+			expect(q.options.filter((o) => o.char === q.solution), `seed ${seed}`).toHaveLength(1);
+			expect(q.options[q.answerIndex].char).toBe(q.solution);
+			expect(new Set(q.options.map((o) => o.char)).size).toBe(q.options.length);
+		}
 	});
 
 	it('only uses digits and punctuation when enabled', () => {

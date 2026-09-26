@@ -54,7 +54,7 @@
 		// Slower replay re-derives the timings from the current WPM rather than
 		// reusing the tuned gaps, so it always sounds like standard Morse.
 		const t = slow ? timingsForWpm(Math.max(5, settings.wpm - 8)) : settings.timings;
-		await tone.playSequence(q.chars, t);
+		await tone.playText(q.solution, t);
 
 		// A replay or a new question replaced this one mid-transmission.
 		if (token !== playToken) return;
@@ -102,7 +102,9 @@
 		answer = { picked, correct: ok };
 		phase = 'answered';
 		asked++;
-		stats.recordAnswer(question.solution, ok);
+		// Stats are per character, so a group counts once for each character it
+		// is made of rather than as one entry keyed by the whole string.
+		for (const c of question.chars) stats.recordAnswer(c.char, ok);
 		void tone.feedback(ok);
 
 		if (ok) {
@@ -288,9 +290,13 @@
 						onclick={() => answerWith(i)}
 					>
 						<span class="opt-key faint">{i + 1}</span>
-						<span class="opt-char">{option.char}</span>
+						<span class="opt-char">
+						{#each option.char.split(/\s+/) as word, w (w)}
+							{#if w > 0}<span class="opt-break" title="word gap">/</span>{/if}{word}
+						{/each}
+					</span>
 						{#if phase === 'answered'}
-							<Pattern pattern={option.pattern} size="sm" />
+							<Pattern pattern={option.pattern} size="sm" phrase={mode === 'word'} />
 						{/if}
 					</button>
 				</li>
@@ -305,7 +311,11 @@
 					{:else}
 						<span class="muted">It was</span><strong>{question.solution}</strong>
 					{/if}
-					<Pattern pattern={encode(question.solution) ?? ''} size="md" />
+					<Pattern
+						pattern={question.pattern}
+						size="md"
+						phrase={mode === 'word'}
+					/>
 				</div>
 				{#if settings.get('autoAdvance')}
 					<p class="hint">Next question shortly…</p>
@@ -492,9 +502,20 @@
 	}
 
 	.opt-char {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
 		font-size: 2rem;
 		font-weight: 650;
 		line-height: 1;
+	}
+
+	/* A group is written the way it is sent, with a slash for the word gap, so
+	   "R R" cannot be read at a glance as a typo next to "RR". */
+	.opt-break {
+		font-size: 0.9rem;
+		color: var(--faint);
+		font-weight: 400;
 	}
 
 	.option.correct {

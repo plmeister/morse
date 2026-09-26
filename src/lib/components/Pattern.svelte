@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { elements } from '$lib/morse';
+	import { elements, phraseSteps, type PhraseStep } from '$lib/morse';
 
 	type Props = {
 		pattern: string;
@@ -7,14 +7,26 @@
 		size?: 'sm' | 'md' | 'lg';
 		/** Dim elements that are not part of the pattern, used for a live buffer. */
 		dim?: boolean;
+		/**
+		 * Set when the pattern is a whole phrase from `encodePhrase`, which can
+		 * carry a word gap. A single code has no gaps in it to draw, so the plain
+		 * splitter is used for everything else.
+		 */
+		phrase?: boolean;
 	};
 
-	let { pattern, size = 'md', dim = false }: Props = $props();
+	let { pattern, size = 'md', dim = false, phrase = false }: Props = $props();
+
+	const steps = $derived<PhraseStep[]>(phrase ? phraseSteps(pattern) : elements(pattern));
 </script>
 
-<span class="pattern {size}" class:dim aria-label={pattern || 'empty'}>
-	{#each elements(pattern) as symbol, i (i)}
-		<span class="el {symbol === '-' ? 'dash' : 'dot'}" class:dim-el={dim}></span>
+<span class="pattern {size}" class:phrase class:dim aria-label={pattern || 'empty'}>
+	{#each steps as symbol, i (i)}
+		{#if symbol === 'gap'}
+			<span class="word-gap" title="word gap"></span>
+		{:else}
+			<span class="el {symbol === '-' ? 'dash' : 'dot'}" class:dim-el={dim}></span>
+		{/if}
 	{/each}
 	{#if !pattern}
 		<span class="empty">&mdash;</span>
@@ -33,7 +45,25 @@
 		gap: var(--u);
 		color: var(--accent);
 		line-height: 1;
+		/* A whole group is far too wide for one line in an answer button, so a
+		   phrase wraps between words and the drawing breaks with it. */
+		flex-wrap: wrap;
+		row-gap: calc(var(--u) * 0.8);
+		max-width: 100%;
+	}
+
+	.pattern:not(.phrase) {
 		white-space: nowrap;
+	}
+
+	/* The word gap is drawn rather than left as a gap, so the pause is visible
+	   and not confused with the character spacing around it. */
+	.word-gap {
+		flex: none;
+		width: calc(var(--u) * 2.4);
+		height: 1px;
+		background: currentColor;
+		opacity: 0.45;
 	}
 
 	.pattern.sm {

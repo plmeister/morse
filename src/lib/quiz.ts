@@ -1,4 +1,12 @@
-import { encode, encodeText, GROUPS, type MorseChar, type MorseGroup } from './morse';
+import {
+	encode,
+	encodePhrase,
+	encodeText,
+	GROUPS,
+	type MorseChar,
+	type MorseGroup,
+	type MorseText,
+} from './morse';
 import { accuracy, needScore, type CharStat, type StatsShape } from './stats.svelte';
 
 export type QuizMode = 'char' | 'word';
@@ -11,12 +19,14 @@ export type Question = {
 	options: Option[];
 	/** The correct answer on its own. */
 	solution: string;
-	/** Pattern that was transmitted. */
+	/** Pattern that was transmitted, as drawn: characters spaced, "/" for a word. */
 	pattern: string;
 	/** For word mode, the whole transmitted string. */
 	text?: string;
-	/** Individual characters, for playback and word mode. */
+	/** Every character in the message, flattened, for stats and display. */
 	chars: MorseChar[];
+	/** The message split into words, so playback can put a word gap in the right place. */
+	groups: MorseText;
 };
 
 export type QuizState = 'idle' | 'asking' | 'answered';
@@ -46,7 +56,14 @@ const WORDS = [
 	'BUDDY',
 	'OM',
 	'SK',
-	'YES',
+	'OVER',
+	'KN KN',
+	'SOS SOS',
+	'CQ DE',
+	'R R',
+	'73 73',
+	'HAM RADIO',
+	'QTC QTC',
 ];
 
 function rng(): number {
@@ -87,18 +104,27 @@ export function nextQuestion(opts: {
 }): Question {
 	const random = opts.random ?? rng;
 	const chars = pool(opts.groups);
-	const solution = opts.mode === 'char' ? pickWeighted(chars, opts.stats, random) : pick(WORDS, random);
+
+	// A word question is drawn from the word list, and its options are words too.
+	// Offering a group of letters as the alternatives made the answer the only
+	// thing on the button of the right length, which is not a question.
+	if (opts.mode === 'word') return wordQuestion(WORDS, opts.choices, random);
+
+	const solution = pickWeighted(chars, opts.stats, random);
 
 	const solutionPattern = encode(solution) ?? '';
 	const charsInMessage: MorseChar[] = encodeText(solution)[0]?.chars ?? [];
 	const pattern = charsInMessage.map((c) => c.pattern).join(' ');
 
 	// Distractors: prefer characters whose code is visually close to the answer,
-	// because confusing those is the actual failure mode being trained.
+	// because confusing those is the actual failure mode being trained. Anything
+	// left over is filled from the next best scoring rather than at random, so a
+	// question never ends up comparing a one element code with a five element one.
 	const distractorPool = chars.filter((c) => c !== solution);
-	const near = pickNear(solutionPattern, solution, distractorPool, opts.choices - 1, random);
-	const filler = distractorPool.filter((c) => c !== solution && !near.includes(c));
-	const distractors = [...near, ...shuffle(filler, random).slice(0, Math.max(0, opts.choices - 1 - near.length))];
+	const ranked = rankNear(solutionPattern, distractorPool);
+	const wanted0 = Math.max(1, opts.choices - 1);
+	const chosen0 = shuffle(ranked.slice(0, Math.min(ranked.length, wanted0 * 3)), random).slice(0, wanted0);
+	const distractors = chosen0;
 
 	const wanted = Math.max(2, opts.choices);
 	const chosen = shuffle([...distractors.slice(0, wanted - 1), solution], random);
@@ -110,7 +136,7 @@ export function nextQuestion(opts: {
 		solution,
 		pattern,
 		chars: charsInMessage,
-		text: opts.mode === 'word' ? solution : undefined,
+		groups: encodeText(solution),
 	};
 }
 
@@ -147,30 +173,75 @@ export function pickWeighted(
 }
 
 /**
- * Characters whose code shares a prefix with the answer, e.g. for "N" (-.)
- * suggest "D" (-..) and "K" (-.-), which is where the real mix-ups are.
+ * Rank characters by how easily they could be mistaken for the answer, closest
+ * first: a shared code prefix counts for something, a difference in length
+ * counts against, since length is the other half of what you hear.
  */
-function pickNear(
-	pattern: string,
-	solution: string,
-	candidates: string[],
-	count: number,
-	random: () => number,
-): string[] {
-	if (count <= 0) return [];
-	const scores: Array<[string, number]> = [];
+function rankNear(pattern: string, candidates: string[]): string[] {
+	const scored: Array<[string, number]> = [];
 	for (const c of candidates) {
 		const p = encode(c) ?? '';
 		if (!p) continue;
 		let shared = 0;
 		while (shared < Math.min(p.length, pattern.length) && p[shared] === pattern[shared]) shared++;
-		scores.push([c, shared - Math.abs(p.length - pattern.length) * 0.5]);
+		scored.push([c, shared - Math.abs(p.length - pattern.length) * 0.5]);
 	}
-	return scores
+	return scored.sort((a, b) => b[1] - a[1]).map(([c]) => c);
+}
+
+/**
+ * Rank words by how hard they are to tell apart by ear.
+ *
+ * Length dominates on purpose. A question offering MORSE against A and T is
+ * answered by counting characters, not by reading the code, so the length
+ * difference is weighted far heavier than the letters they happen to share.
+ */
+function scoreWord(solution: string, word: string): number {
+	const wantChars = solution.replace(/\s/g, '').length;
+	const chars = word.replace(/\s/g, '').length;
+	const wantWords = solution.trim().split(/\s+/).length;
+	const words = word.trim().split(/\s+/).length;
+	let shared = 0;
+	while (shared < Math.min(word.length, solution.length) && word[shared] === solution[shared]) shared++;
+	// Length dominates on purpose. A question offering MORSE against A and T is
+	// answered by counting characters, not by reading the code.
+	return -Math.abs(chars - wantChars) * 10 - Math.abs(words - wantWords) * 3 + shared;
+}
+
+function rankWords(solution: string, candidates: string[]): string[] {
+	return candidates
+		.map((w) => [w, scoreWord(solution, w)] as const)
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, Math.max(1, count))
-		.map(([c]) => c)
-		.filter((c) => c !== solution);
+		.map(([w]) => w);
+}
+
+function wordQuestion(words: string[], choices: number, random: () => number): Question {
+	const unique = [...new Set(words)];
+	const solution = pick(unique, random);
+	const wanted = Math.max(1, choices - 1);
+	const ranked = rankWords(solution, unique.filter((w) => w !== solution));
+
+	// Take the alternatives from the band that scores close to the best one, so
+	// they are the same size as the answer, then shuffle within it so the same
+	// word is not always offered with the same three. A wide band was the wrong
+	// shape here: answering HAM RADIO left nothing of the same length, so the
+	// band reached all the way down to the shortest words in the list.
+	const NEAR = 6;
+	const best = ranked.length ? scoreWord(solution, ranked[0]) : 0;
+	const band = ranked.filter((w) => scoreWord(solution, w) >= best - NEAR);
+	const shortlist = band.length >= wanted ? band : ranked.slice(0, wanted);
+	const distractors = shuffle(shortlist, random).slice(0, wanted);
+	const options = shuffle([...distractors, solution], random);
+	const groups = encodeText(solution);
+	return {
+		answerIndex: options.indexOf(solution),
+		options: options.map((w) => ({ char: w, pattern: encodePhrase(w) })),
+		solution,
+		pattern: encodePhrase(solution),
+		chars: groups.flatMap((w) => w.chars),
+		groups,
+		text: solution,
+	};
 }
 
 /** Per-character summary rows for the stats view, worst accuracy first. */

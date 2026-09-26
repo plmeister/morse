@@ -7,7 +7,7 @@
  * wrong blip can never disturb the pitch of code that is still scheduled.
  */
 
-import { elements, encode, type MorseChar } from './morse';
+import { elements, encode } from './morse';
 import type { Timings } from './timing';
 
 const ATTACK_S = 0.008;
@@ -224,17 +224,6 @@ export class ToneEngine {
 	}
 
 	/** Play several codes in sequence, e.g. the options of a quiz question. */
-	async playSequence(chars: MorseChar[], t: Timings, volume = this.#volume): Promise<void> {
-		// Characters inside one word are a character gap apart; the word gap only
-		// belongs after the last of them.
-		const units = chars.map((c, i) => ({
-			pattern: c.pattern,
-			gapAfterMs: i === chars.length - 1 ? t.wordGapMs : t.charGapMs,
-		}));
-		if (!units.length) return;
-		await this.#sleep(this.#schedule(units, t, volume));
-	}
-
 	/** Cancel playback: silence at once and release anything awaiting completion. */
 	stop() {
 		if (this.#ctx && this.#play) {

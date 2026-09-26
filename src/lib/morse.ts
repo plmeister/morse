@@ -144,6 +144,36 @@ export function elements(pattern: string): Symbol[] {
 }
 
 /**
+ * Encode a whole string as one drawable pattern, with a character gap between
+ * characters and "/" for the word gap.
+ *
+ * This is for showing a message, not for sending one: `elements` is what the
+ * audio walks, and it only knows dots and dashes. A "/" here is the same
+ * convention Morse uses on paper for a word gap.
+ */
+export function encodePhrase(text: string): string {
+	return encodeText(text)
+		.map((w) => w.chars.map((c) => c.pattern).join(' '))
+		.join(' / ');
+}
+
+/** One step of a drawn phrase: a dot, a dash, or the gap between words. */
+export type PhraseStep = Symbol | 'gap';
+
+/**
+ * Split a phrase from `encodePhrase` into steps, dropping the spaces that
+ * separate characters because the flex gap in the drawing already shows them.
+ */
+export function phraseSteps(pattern: string): PhraseStep[] {
+	const steps: PhraseStep[] = [];
+	for (const char of pattern) {
+		if (char === ' ') continue;
+		steps.push(char === '/' ? 'gap' : (char as Symbol));
+	}
+	return steps;
+}
+
+/**
  * Characters whose code could still become `buffer`.
  *
  * While keying, the buffer is a partial code (e.g. "-." on the way to "N" or
