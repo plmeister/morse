@@ -13,8 +13,13 @@ import type { KeyTargetKind } from './settings.svelte';
  * the keyer decoded is what the user sent, gaps and all.
  */
 
-/** What has become of one character of the target so far. */
-export type Mark = 'pending' | 'right' | 'wrong';
+/**
+ * What has become of one character of the target so far.
+ *
+ * `gap` is not a wrong code. The character was sent correctly and the pause in
+ * front of it was too long, so it reads as the start of a new word.
+ */
+export type Mark = 'pending' | 'right' | 'wrong' | 'gap';
 
 export type KeyingVerdict = {
 	/** One mark per character of the target, so a row of boxes can show progress. */
@@ -24,43 +29,60 @@ export type KeyingVerdict = {
 	correct: boolean;
 	/** Index of the first character sent wrongly, or -1. */
 	wrongAt: number;
+	/** Index of the first character a word gap was sent in front of, or -1. */
+	spacingAt: number;
 };
 
-/**
- * The characters, ignoring spaces.
- *
- * The keyer writes a space when a word gap was sent, and a target with no word
- * gaps in it can easily pick one up from a hand that hesitated. That is a
- * timing slip rather than a wrong character, so it is forgiven here. Word gaps
- * that the target does ask for are left to the send tab, which is where they are
- * actually practised.
- */
+/** The target without the word gaps in it, one entry per character. */
 const letters = (s: string) => s.replace(/\s/g, '');
 
 /**
- * Grade what the keyer decoded against the target, stopping at the first
- * character that was sent wrongly. Stopping matters: a wrong third character
- * makes the rest of the answer meaningless, and marking eight more boxes would
- * only bury the one that needs fixing.
+ * Grade what the keyer decoded against the target.
+ *
+ * There are two faults here and they are not the same fault.
+ *
+ * A character sent wrongly ends the question on the spot, because everything
+ * after it is meaningless and marking seven more boxes would only bury the one
+ * that needs fixing.
+ *
+ * A word gap inside the target is only a mark down. It does not stop the
+ * question, because the rest of the word is still worth sending and the
+ * characters either side of it were still sent correctly, so they keep their
+ * point. The gap is charged to the character in front of it, since that is the
+ * position a character gap was wanted in, and that is the one character to
+ * lose. Reading a word gap inside a word as part of the word would mean the
+ * grader had to invent a pause nobody asked for, so the pause is read as what
+ * it is on the wire: a new word starting early.
  */
 export function gradeKeying(target: string, typed: string): KeyingVerdict {
 	const want = letters(target);
-	const got = letters(typed);
 	const marks: Mark[] = [...want].map(() => 'pending');
+	let spacingAt = -1;
+	let i = 0;
 
-	for (let i = 0; i < want.length && i < got.length; i++) {
-		if (got[i] === want[i]) {
-			marks[i] = 'right';
+	for (const c of typed) {
+		// Sent more than was asked for. A pause after the last character is the
+		// end of the answer rather than a gap inside it.
+		if (i >= want.length) break;
+		if (/\s/.test(c)) {
+			if (spacingAt < 0) {
+				spacingAt = i;
+				marks[i] = 'gap';
+			}
 			continue;
 		}
-		marks[i] = 'wrong';
-		return { marks, done: true, correct: false, wrongAt: i };
+		if (c !== want[i]) {
+			marks[i] = 'wrong';
+			return { marks, done: true, correct: false, wrongAt: i, spacingAt };
+		}
+		// A mark down for the gap in front of this character stands even though the
+		// character itself arrived correctly, so it is not overwritten here.
+		if (marks[i] === 'pending') marks[i] = 'right';
+		i++;
 	}
 
-	if (got.length >= want.length) {
-		return { marks: [...want].map(() => 'right'), done: true, correct: true, wrongAt: -1 };
-	}
-	return { marks, done: false, correct: false, wrongAt: -1 };
+	if (i < want.length) return { marks, done: false, correct: false, wrongAt: -1, spacingAt };
+	return { marks, done: true, correct: spacingAt < 0, wrongAt: -1, spacingAt };
 }
 
 /**

@@ -4,7 +4,7 @@
 	import QuizKeying from './QuizKeying.svelte';
 	import { tone } from '$lib/audio';
 	import { keyer } from '$lib/keyer.svelte';
-	import { keyingTarget, targetChars } from '$lib/keying';
+	import { keyingTarget, targetChars, type KeyingVerdict, type Mark } from '$lib/keying';
 	import { encode, encodePhrase, GROUPS, type MorseChar, type MorseGroup } from '$lib/morse';
 	import { defaultGroups, nextQuestion, type Question } from '$lib/quiz';
 	import { settings, type QuizMode } from '$lib/settings.svelte';
@@ -20,7 +20,7 @@
 	let playing = $state(false);
 
 	/** Keying practice asks the user to send this, and to send it themselves. */
-	let keying = $state<{ target: string; sent: string } | null>(null);
+	let keying = $state<{ target: string; sent: string; gapAt: number } | null>(null);
 	/**
 	 * Bumped for every question. The keying view is remounted on this rather than
 	 * on the target, because the same target twice in a row is ordinary: keyed
@@ -98,7 +98,11 @@
 			// user, and hearing it first would hand it over.
 			question = null;
 			keyer.clear();
-			keying = { target: keyingTarget({ kind: keyTarget, groups, stats: stats.raw }), sent: '' };
+			keying = {
+				target: keyingTarget({ kind: keyTarget, groups, stats: stats.raw }),
+				sent: '',
+				gapAt: -1,
+			};
 			return;
 		}
 
@@ -132,19 +136,26 @@
 	}
 
 	/** The user keyed the answer to a keying question, correctly or not. */
-	function onKeyed(result: { ok: boolean; sent: string }) {
+	function onKeyed(result: { verdict: KeyingVerdict; sent: string }) {
 		if (phase !== 'asking' || !keying) return;
-		keying = { ...keying, sent: result.sent };
-		applyAnswer(result.ok, -1, targetChars(keying.target));
+		keying = { ...keying, sent: result.sent, gapAt: result.verdict.spacingAt };
+		applyAnswer(result.verdict.correct, -1, targetChars(keying.target), result.verdict.marks);
 	}
 
-	function applyAnswer(ok: boolean, picked: number, chars: MorseChar[]) {
+	function applyAnswer(ok: boolean, picked: number, chars: MorseChar[], marks?: Mark[]) {
 		answer = { picked, correct: ok };
 		phase = 'answered';
 		asked++;
 		// Stats are per character, so a group counts once for each character it
 		// is made of rather than as one entry keyed by the whole string.
-		for (const c of chars) stats.recordAnswer(c.char, ok);
+		//
+		// Keying a word with a word gap in the middle marks the question down, but
+		// the characters either side of the gap were still sent correctly and keep
+		// their point. The gap is charged to the one character it displaced, which
+		// is the mark rather than a right.
+		for (const [i, c] of chars.entries()) {
+			stats.recordAnswer(c.char, marks ? marks[i] === 'right' : ok);
+		}
 		void tone.feedback(ok);
 
 		if (ok) {
@@ -412,6 +423,12 @@
 					{#if keyingMode && keying}
 						{#if answer.correct}
 							Sent correctly
+						{:else if keying.gapAt >= 0}
+							<span class="muted">Every character right, but the pause before</span>
+							<strong>{[...keying.target.replace(/\s/g, '')][keying.gapAt]}</strong>
+							<span class="muted"
+								>was long enough to read as the end of the word. Faster between characters.</span
+							>
 						{:else}
 							<span class="muted">You sent</span>
 							<strong>{keying.sent.trim() || 'nothing'}</strong>

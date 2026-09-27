@@ -18,6 +18,7 @@ describe('gradeKeying', () => {
 			done: false,
 			correct: false,
 			wrongAt: -1,
+			spacingAt: -1,
 		});
 	});
 
@@ -44,9 +45,33 @@ describe('gradeKeying', () => {
 		expect(gradeKeying('K', 'R')).toMatchObject({ correct: false, wrongAt: 0, done: true });
 	});
 
-	it('forgives a word gap picked up inside a target that has none', () => {
-		// A hand that hesitated is a timing slip, not a wrong character.
-		expect(gradeKeying('ANT', 'A NT')).toMatchObject({ correct: true, done: true });
+	it('marks down a word gap inside a target, and still credits the codes around it', () => {
+		// The pause is the fault, not the letters, so only the character the gap
+		// displaced loses its point.
+		const v = gradeKeying('ANT', 'A NT');
+		expect(v.marks).toEqual(['right', 'gap', 'right']);
+		expect(v).toMatchObject({ done: true, correct: false, wrongAt: -1, spacingAt: 1 });
+	});
+
+	it('lets the rest of the word be sent after a gap, since it is still worth the points', () => {
+		expect(gradeKeying('ANT', 'A N')).toMatchObject({
+			marks: ['right', 'gap', 'pending'],
+			done: false,
+			spacingAt: 1,
+		});
+	});
+
+	it('charges only the first gap, since one mistake is the lesson', () => {
+		expect(gradeKeying('ANT', 'A N T')).toMatchObject({
+			marks: ['right', 'gap', 'right'],
+			correct: false,
+			spacingAt: 1,
+		});
+	});
+
+	it('does not mind a pause after the last character, which ends the answer', () => {
+		expect(gradeKeying('ET', 'ET ON')).toMatchObject({ correct: true, spacingAt: -1 });
+		expect(gradeKeying('K', 'K ')).toMatchObject({ correct: true, spacingAt: -1 });
 	});
 
 	it('does not mind more being sent than the target asked for', () => {

@@ -2,7 +2,7 @@
 	import KeyPad from './KeyPad.svelte';
 	import { keyer } from '$lib/keyer.svelte';
 	import { handleKeyDown, handleKeyUp } from '$lib/key-typing';
-	import { gradeKeying } from '$lib/keying';
+	import { gradeKeying, type KeyingVerdict } from '$lib/keying';
 
 	let {
 		target,
@@ -12,7 +12,7 @@
 		target: string;
 		/** Set once the answer is settled: the marks stay, the key does not. */
 		done?: boolean;
-		onresult: (result: { ok: boolean; sent: string }) => void;
+		onresult: (result: { verdict: KeyingVerdict; sent: string }) => void;
 	} = $props();
 
 	const snap = $derived(keyer.snapshot);
@@ -28,7 +28,7 @@
 	$effect(() => {
 		if (reported || !verdict.done) return;
 		reported = true;
-		onresult({ ok: verdict.correct, sent: snap.output.trim() });
+		onresult({ verdict, sent: snap.output.trim() });
 	});
 
 	// Once the answer is settled the key is taken away, so a stray tap cannot
@@ -55,6 +55,7 @@
 				class="mark"
 				class:right={verdict.marks[i] === 'right'}
 				class:wrong={verdict.marks[i] === 'wrong'}
+				class:gap={verdict.marks[i] === 'gap'}
 			>
 				{letter}
 			</span>
@@ -67,6 +68,14 @@
 		<p class="hint">
 		Send it. Any key sends a dot, hold it for a dash, leave a space between characters. Backspace
 		removes one, Escape clears.
+		</p>
+		<p class="hint">
+		{#if letters.length > 1}
+			Keep the pause between characters short. Long enough and it reads as the end of the word,
+			which is marked down even though every character was sent.
+		{:else}
+			Hold each element to make it a dash, and leave a moment between them.
+		{/if}
 		</p>
 	{/if}
 </div>
@@ -116,6 +125,13 @@
 	.mark.wrong {
 		border-color: var(--bad);
 		color: var(--bad);
+	}
+
+	/* The character is right, the pause in front of it was not. */
+	.mark.gap {
+		border-color: var(--warn);
+		color: var(--warn);
+		background: var(--surface);
 	}
 
 	.hint {
