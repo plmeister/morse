@@ -36,9 +36,36 @@ export class ToneEngine {
 	#sidetoneLevel = 0;
 	#playLevel = 0;
 	#nextSleeper = 1;
+	/** The context was suspended or interrupted, so the gains are not where the books say. */
+	#stale = false;
+	/** The last resume was ours, so the state change it causes is expected. */
+	#asked = false;
 
+	constructor() {
+		if (typeof document === 'undefined') return;
+		// A hidden tab has its timers throttled to about once a second, so a run
+		// paced by setTimeout comes back a long way out of step with the audio
+		// clock, and stops matching the code actually sounding. Cut it off
+		// instead of letting it drift.
+		document.addEventListener('visibilitychange', () => {
+			if (!document.hidden) return;
+			this.stop();
+			// A ramp scheduled now would not run until the clock moved again, and
+			// a tone cut off that way comes back as a drone once the context does
+			// resume, so the gains are taken to silence outright.
+			this.#silence();
+		});
+	}
+
+	/**
+	 * Whether sound can be made right now.
+	 *
+	 * Only a context that is actually running counts. One the browser suspended
+	 * when the tab went to the background still exists but makes no sound, and
+	 * counting that as ready meant the unlock below ran once and never again.
+	 */
 	get ready() {
-		return this.#ctx !== null;
+		return this.#ctx?.state === 'running';
 	}
 
 	get frequency() {
@@ -73,34 +100,82 @@ export class ToneEngine {
 		}
 	}
 
+	/**
+	 * A context that will not run is no use, so anything short of running gets a
+	 * fresh one. A closed context in particular cannot be resumed, and scheduling
+	 * into one is silent for good: that is the failure that used to need a page
+	 * reload to shake loose, and it is what the browser leaves behind when it
+	 * reclaims a tab it had suspended.
+	 */
 	#ensure(): AudioContext {
-		if (!this.#ctx) {
-			const Ctor: typeof AudioContext | undefined =
-				window.AudioContext ??
-				(window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-			if (!Ctor) throw new Error('WebAudio unavailable');
-
-			const ctx = new Ctor();
-			const osc = ctx.createOscillator();
-			osc.type = 'sine';
-			osc.frequency.value = this.#freq;
-
-			const sidetone = ctx.createGain();
-			sidetone.gain.value = 0;
-			const play = ctx.createGain();
-			play.gain.value = 0;
-
-			osc.connect(sidetone).connect(ctx.destination);
-			osc.connect(play).connect(ctx.destination);
-			osc.start();
-
-			this.#ctx = ctx;
-			this.#osc = osc;
-			this.#sidetone = sidetone;
-			this.#play = play;
+		if (!this.#ctx || this.#ctx.state === 'closed') this.#build();
+		const ctx = this.#ctx!;
+		if (ctx.state !== 'running') {
+			this.#asked = true;
+			// Not awaited on purpose. What follows is scheduled on the audio
+			// clock, which starts moving again as soon as the resume lands, so
+			// waiting on the promise would add latency to the first press to buy
+			// nothing.
+			void ctx.resume().catch(() => {});
 		}
-		if (this.#ctx.state === 'suspended') void this.#ctx.resume();
-		return this.#ctx;
+		return ctx;
+	}
+
+	/** Build the oscillator and its two gain stages onto a new context. */
+	#build() {
+		const Ctor: typeof AudioContext | undefined =
+			window.AudioContext ??
+			(window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+		if (!Ctor) throw new Error('WebAudio unavailable');
+
+		const ctx = new Ctor();
+		const osc = ctx.createOscillator();
+		osc.type = 'sine';
+		osc.frequency.value = this.#freq;
+
+		const sidetone = ctx.createGain();
+		sidetone.gain.value = 0;
+		const play = ctx.createGain();
+		play.gain.value = 0;
+
+		osc.connect(sidetone).connect(ctx.destination);
+		osc.connect(play).connect(ctx.destination);
+		osc.start();
+
+		ctx.addEventListener('statechange', () => {
+			if (ctx.state !== 'running') {
+				// The clock has stopped, so a ramp that was in flight has not
+				// happened. Forget the levels rather than ramp from them later.
+				this.#stale = true;
+				this.#sidetoneLevel = 0;
+				this.#playLevel = 0;
+				return;
+			}
+			// Back on its own, and not because we asked: whatever the suspension
+			// froze the gains at is still there, which for a tone caught mid-sound
+			// means a stuck note. Take them to silence before anything ramps.
+			if (this.#stale && !this.#asked) this.#silence();
+			this.#stale = false;
+			this.#asked = false;
+		});
+
+		this.#ctx = ctx;
+		this.#osc = osc;
+		this.#sidetone = sidetone;
+		this.#play = play;
+		this.#stale = false;
+		this.#asked = false;
+	}
+
+	/** Both gains to silence now, rather than by a ramp that may not arrive. */
+	#silence() {
+		for (const gain of [this.#sidetone, this.#play]) {
+			if (!gain) continue;
+			gain.gain.cancelScheduledValues(0);
+			gain.gain.value = 0;
+		}
+		this.#sidetoneLevel = 0;
+		this.#playLevel = 0;
 	}
 
 	/**
@@ -223,7 +298,6 @@ export class ToneEngine {
 		this.#progress = [];
 	}
 
-	/** Play several codes in sequence, e.g. the options of a quiz question. */
 	/** Cancel playback: silence at once and release anything awaiting completion. */
 	stop() {
 		if (this.#ctx && this.#play) {
@@ -293,10 +367,6 @@ export class ToneEngine {
 	}
 }
 
-/**
- * Lay a string out as playable codes, so a word reads as characters separated
- * by character gaps and words separated by word gaps.
- */
 /** One straight move of the gain, from a known level to another. */
 export type EnvelopeSegment = {
 	/** Seconds, on the AudioContext clock. */
@@ -364,6 +434,10 @@ export function playEnvelope(
 	return segments;
 }
 
+/**
+ * Lay a string out as playable codes, so a word reads as characters separated
+ * by character gaps and words separated by word gaps.
+ */
 export function unitsForText(text: string, t: Timings): PlayUnit[] {
 	const units: PlayUnit[] = [];
 	for (const word of text.trim().split(/\s+/).filter(Boolean)) {
