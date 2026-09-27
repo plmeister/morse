@@ -1,47 +1,21 @@
 <script lang="ts">
 	import Pattern from './Pattern.svelte';
 	import { keyer } from '$lib/keyer.svelte';
+	import { handleKeyDown, handleKeyUp } from '$lib/key-typing';
 
 	let { onsend }: { onsend?: () => void } = $props();
 
 	const snap = $derived(keyer.snapshot);
 
 	// --- keyboard keying ---------------------------------------------------
-	// Any key keys, like a real straight key. Suppressed while typing so the
-	// send-a-message box is still usable.
-	function isTyping(target: EventTarget | null): boolean {
-		const el = target as HTMLElement | null;
-		if (!el) return false;
-		return (
-			el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true
-		);
-	}
-
+	// Any key keys, like a real straight key. The rules live in key-typing so
+	// the keying quiz keys the same way on its own tab.
 	function onKeyDown(e: KeyboardEvent) {
-		if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-		if (isTyping(e.target)) return;
-		if (e.key === 'Escape') {
-			keyer.clear();
-			return;
-		}
-		// Backspace drops the last character. It is longer than one character, so it
-		// is handled before the "any key keys" rule below would ignore it anyway.
-		if (e.key === 'Backspace') {
-			e.preventDefault();
-			keyer.deleteLast();
-			return;
-		}
-		// Let the browser keep its own shortcuts (tab, devtools, reload).
-		if (e.key === 'Tab' || e.key.length > 1) return;
-		e.preventDefault();
-		keyer.press();
+		if (handleKeyDown(e, keyer)) e.preventDefault();
 	}
 
 	function onKeyUp(e: KeyboardEvent) {
-		if (e.metaKey || e.ctrlKey || e.altKey) return;
-		if (isTyping(e.target)) return;
-		if (e.key === 'Escape' || e.key === 'Tab' || e.key.length > 1) return;
-		keyer.release();
+		if (handleKeyUp(e, keyer)) e.preventDefault();
 	}
 
 </script>

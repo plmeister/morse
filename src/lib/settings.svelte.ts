@@ -18,7 +18,9 @@ import {
 
 const KEY = 'morse.settings.v1';
 
-export type QuizMode = 'char' | 'word';
+export type QuizMode = 'char' | 'word' | 'key';
+/** What keying practice asks the user to send. The two ways of being asked. */
+export type KeyTargetKind = Exclude<QuizMode, 'key'>;
 export type KeyAction = 'none' | 'selectAll' | 'copy' | 'clear' | 'send';
 
 export const DEFAULTS = {
@@ -41,6 +43,8 @@ export const DEFAULTS = {
 	/** Seconds to sit on feedback before the next question. */
 	autoAdvanceMs: 1100,
 	quizMode: 'char' as QuizMode,
+	/** Keying practice sends a character or a whole word. */
+	keyTarget: 'char' as KeyTargetKind,
 	choices: 4,
 	includeDigits: false,
 	includePunct: false,
@@ -66,6 +70,7 @@ export type SettingsShape = {
 	autoAdvance: boolean;
 	autoAdvanceMs: number;
 	quizMode: QuizMode;
+	keyTarget: KeyTargetKind;
 	choices: number;
 	includeDigits: boolean;
 	includePunct: boolean;

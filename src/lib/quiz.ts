@@ -189,9 +189,13 @@ export function defaultGroups(includeDigits: boolean, includePunct: boolean): Mo
  * letter takes roughly a sixth of the session — enough to fix it, not enough
  * to crowd out everything else.
  */
+/** The two ways of asking a question the user answers by picking. */
+export type QuizKind = Exclude<QuizMode, 'key'>;
+
 export function nextQuestion(opts: {
 	groups: MorseGroup[];
-	mode: QuizMode;
+	/** Keying practice builds no question at all, so it is not one of these. */
+	mode: QuizKind;
 	choices: number;
 	stats: StatsShape;
 	/** Word-mode pool. Defaults to {@link WORD_LIST}. */

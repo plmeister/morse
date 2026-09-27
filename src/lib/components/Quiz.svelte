@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import Pattern from './Pattern.svelte';
+	import QuizKeying from './QuizKeying.svelte';
 	import { tone } from '$lib/audio';
-	import { encode, GROUPS, type MorseGroup } from '$lib/morse';
+	import { keyer } from '$lib/keyer.svelte';
+	import { keyingTarget, targetChars } from '$lib/keying';
+	import { encode, encodePhrase, GROUPS, type MorseChar, type MorseGroup } from '$lib/morse';
 	import { defaultGroups, nextQuestion, type Question } from '$lib/quiz';
 	import { settings, type QuizMode } from '$lib/settings.svelte';
 	import { stats } from '$lib/stats.svelte';
@@ -15,6 +18,16 @@
 	let question = $state<Question | null>(null);
 	let answer = $state<{ picked: number; correct: boolean } | null>(null);
 	let playing = $state(false);
+
+	/** Keying practice asks the user to send this, and to send it themselves. */
+	let keying = $state<{ target: string; sent: string } | null>(null);
+	/**
+	 * Bumped for every question. The keying view is remounted on this rather than
+	 * on the target, because the same target twice in a row is ordinary: keyed
+	 * by the target it would keep the previous answer's buffer and its latch, and
+	 * the second question could never be marked.
+	 */
+	let questionId = $state(0);
 
 	// Session counters.
 	let asked = $state(0);
@@ -30,6 +43,9 @@
 		defaultGroups(settings.get('includeDigits'), settings.get('includePunct')),
 	);
 	const mode = $derived<QuizMode>(settings.get('quizMode'));
+	/** True while the user is sending the answer rather than picking one. */
+	const keyingMode = $derived(mode === 'key');
+	const keyTarget = $derived(settings.get('keyTarget'));
 	const choices = $derived(settings.get('choices'));
 	const sessionLength = $derived(settings.get('sessionLength'));
 	const poolSize = $derived(groups.reduce((n, g) => n + GROUPS[g].length, 0));
@@ -72,6 +88,21 @@
 		}
 
 		phase = 'asking';
+
+		questionId++;
+
+		// Compared against mode rather than the keyingMode flag so that mode
+		// narrows to the two modes that build a question to pick from.
+		if (mode === 'key') {
+			// Nothing is played: the whole point is that the answer comes from the
+			// user, and hearing it first would hand it over.
+			question = null;
+			keyer.clear();
+			keying = { target: keyingTarget({ kind: keyTarget, groups, stats: stats.raw }), sent: '' };
+			return;
+		}
+
+		keying = null;
 		question = nextQuestion({ groups, mode, choices, stats: stats.raw });
 		void playQuestion(question);
 	}
@@ -92,19 +123,28 @@
 		void playQuestion(question, slow);
 	}
 
+	/** The code for a keying target, which is only ever shown as feedback. */
+	const keyPattern = $derived(keying ? encodePhrase(keying.target) : '');
+
 	function answerWith(index: number) {
 		if (phase !== 'asking' || !question || answer) return;
-		applyAnswer(index === question.answerIndex, index);
+		applyAnswer(index === question.answerIndex, index, question.chars);
 	}
 
-	function applyAnswer(ok: boolean, picked: number) {
-		if (!question) return;
+	/** The user keyed the answer to a keying question, correctly or not. */
+	function onKeyed(result: { ok: boolean; sent: string }) {
+		if (phase !== 'asking' || !keying) return;
+		keying = { ...keying, sent: result.sent };
+		applyAnswer(result.ok, -1, targetChars(keying.target));
+	}
+
+	function applyAnswer(ok: boolean, picked: number, chars: MorseChar[]) {
 		answer = { picked, correct: ok };
 		phase = 'answered';
 		asked++;
 		// Stats are per character, so a group counts once for each character it
 		// is made of rather than as one entry keyed by the whole string.
-		for (const c of question.chars) stats.recordAnswer(c.char, ok);
+		for (const c of chars) stats.recordAnswer(c.char, ok);
 		void tone.feedback(ok);
 
 		if (ok) {
@@ -127,11 +167,12 @@
 	// Changing the pool or the option count mid-run would make the score
 	// meaningless, so drop back to the setup screen.
 	$effect(() => {
-		const signature = `${groups.join(',')}|${mode}|${choices}|${sessionLength}`;
+		const signature = `${groups.join(',')}|${mode}|${keyTarget}|${choices}|${sessionLength}`;
 		if (untrack(() => phase) === 'idle') return;
 		cancelPending();
 		phase = 'idle';
 		question = null;
+		keying = null;
 		answer = null;
 		finished = false;
 		// eslint-disable-next-line no-unused-vars
@@ -140,6 +181,9 @@
 
 	// Keyboard shortcuts for the options: 1-6.
 	function onKeyDown(e: KeyboardEvent) {
+		// In keying practice every key is a dot or a dash, so the option
+		// shortcuts would send the wrong thing entirely.
+		if (keyingMode) return;
 		if (phase !== 'asking' || !question || answer) return;
 		const target = e.target as HTMLElement | null;
 		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
@@ -193,7 +237,52 @@
 						<em class="hint">Watch the spaces between words.</em>
 					</span>
 				</label>
+				<label class="mode">
+					<input
+						type="radio"
+						name="mode"
+						value="key"
+						checked={mode === 'key'}
+						onchange={() => settings.set('quizMode', 'key')}
+					/>
+					<span>
+						<strong>Key it yourself</strong>
+						<em class="hint">You send it. The code is only shown afterwards.</em>
+					</span>
+				</label>
 			</fieldset>
+
+			{#if keyingMode}
+				<fieldset class="modes">
+					<legend class="section-title">Send what</legend>
+					<label class="mode">
+						<input
+							type="radio"
+							name="keyTarget"
+							value="char"
+							checked={keyTarget === 'char'}
+							onchange={() => settings.set('keyTarget', 'char')}
+						/>
+						<span>
+							<strong>One character</strong>
+							<em class="hint">From the pool below. Start here.</em>
+						</span>
+					</label>
+					<label class="mode">
+						<input
+							type="radio"
+							name="keyTarget"
+							value="word"
+							checked={keyTarget === 'word'}
+							onchange={() => settings.set('keyTarget', 'word')}
+						/>
+						<span>
+							<strong>Whole words</strong>
+							<em class="hint">The real test. Groups are on the send tab.</em>
+						</span>
+					</label>
+				</fieldset>
+			{/if}
 
 			<div class="pool">
 				<label class="toggle">
@@ -215,7 +304,13 @@
 			</div>
 
 			<p class="hint">
-				{poolSize} characters in the pool · {choices} options per question
+				{#if keyingMode}
+					{keyTarget === 'char'
+						? `${poolSize} characters to send`
+						: 'Whole words to send'}
+				{:else}
+					{poolSize} characters in the pool · {choices} options per question
+				{/if}
 				{#if sessionLength > 0}· {sessionLength} questions{:else}· endless{/if}
 			</p>
 
@@ -236,7 +331,7 @@
 			<p class="muted">Best streak: {bestStreak}</p>
 			<button class="btn btn-primary btn-lg start" type="button" onclick={start}>Again</button>
 		</div>
-	{:else if question}
+	{:else if question || keying}
 		<div class="hud">
 			<div class="hud-stats">
 				<span><strong>{correct}</strong><span class="faint">/{asked}</span></span>
@@ -250,6 +345,7 @@
 			{/if}
 		</div>
 
+		{#if !keyingMode}
 		<div class="card transmit">
 			<div class="transmit-row">
 				<button
@@ -271,10 +367,16 @@
 			</div>
 			<p class="hint">
 				{mode === 'word' ? 'A whole group, spaces included.' : 'One character.'}
-				Replay as often as you like · keys 1–{question.options.length} to answer
+				Replay as often as you like · keys 1–{question?.options.length} to answer
 			</p>
 		</div>
+		{/if}
 
+		{#if keyingMode && keying}
+			{#key questionId}
+				<QuizKeying target={keying.target} done={phase === 'answered'} onresult={onKeyed} />
+			{/key}
+		{:else if question}
 		<ul class="options">
 			{#each question.options as option, i (option.char)}
 				{@const isPicked = answer?.picked === i}
@@ -302,20 +404,31 @@
 				</li>
 			{/each}
 		</ul>
+		{/if}
 
-		{#if phase === 'answered' && answer && question}
+		{#if phase === 'answered' && answer && (question || keying)}
 			<div class="verdict" class:good={answer.correct} class:bad={!answer.correct}>
 				<div class="verdict-main">
-					{#if answer.correct}
-						Correct
-					{:else}
-						<span class="muted">It was</span><strong>{question.solution}</strong>
+					{#if keyingMode && keying}
+						{#if answer.correct}
+							Sent correctly
+						{:else}
+							<span class="muted">You sent</span>
+							<strong>{keying.sent.trim() || 'nothing'}</strong>
+						{/if}
+						<Pattern pattern={keyPattern} size="md" phrase={keyTarget === 'word'} />
+					{:else if question}
+						{#if answer.correct}
+							Correct
+						{:else}
+							<span class="muted">It was</span><strong>{question.solution}</strong>
+						{/if}
+						<Pattern
+							pattern={question.pattern}
+							size="md"
+							phrase={mode === 'word'}
+						/>
 					{/if}
-					<Pattern
-						pattern={question.pattern}
-						size="md"
-						phrase={mode === 'word'}
-					/>
 				</div>
 				{#if settings.get('autoAdvance')}
 					<p class="hint">Next question shortly…</p>
