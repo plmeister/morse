@@ -31,39 +31,133 @@ export type Question = {
 
 export type QuizState = 'idle' | 'asking' | 'answered';
 
-const WORDS = [
+/**
+ * The words a word question can be drawn from.
+ *
+ * Weighted to what a contact actually sounds like rather than to English word
+ * frequency. A frequency ranking of written prose is mostly function words and
+ * nouns nobody sends, so the Q codes, the procedure words and the gear and
+ * signal vocabulary lead, and the English that fills in the rest of a sentence
+ * follows. Six entries are sent as one phrase, because a group is a thing you
+ * learn as a unit.
+ *
+ * Kept as data rather than folded into the generator so it can be swapped and
+ * tested on its own: a list that cannot be handed to `nextQuestion` cannot be
+ * checked for the property the quiz depends on, which is that every word in it
+ * can make a fair question.
+ *
+ * Nothing here is a single character. One letter has no rivals of its own
+ * length, so it would be the only thing on the options row of the right size,
+ * which is the same flaw as offering MORSE against A. Letters are the char
+ * mode's job.
+ */
+export const WORD_LIST: readonly string[] = [
+	// Q codes, which are most of what a contact sounds like.
+	'QSL',
+	'QRZ',
+	'QTH',
+	'QRS',
+	'QRK',
+	'QRL',
+	'QRT',
+	'QRV',
+	'QSY',
+	'QSO',
+	'QTC',
+	'QRM',
+	'QRP',
+	// Procedure words, and the run-on sentences built out of them.
+	'ROGER',
+	'WILCO',
+	'OVER',
+	'BREAK',
+	'COPY',
+	'AGN',
+	'TNX',
+	'HPE',
 	'SOS',
-	'HELP',
-	'CQ',
-	'OK',
+	'NIL',
+	'FB',
+	'VY',
+	'73',
+	'88',
+	'59',
+	// Who, where, and whose.
+	'DE',
+	'TO',
+	'UR',
+	'HR',
+	'PSE',
+	'OP',
+	'CALL',
+	'NAME',
+	'STATION',
+	'TRAFFIC',
+	'MESSAGE',
+	'BOOK',
+	// The rig, the band, and the signal.
+	'RADIO',
+	'ANTENNA',
+	'DIPOLE',
+	'BEAM',
+	'WIRE',
+	'POWER',
+	'RIG',
+	'BAND',
+	'MODE',
+	'BEACON',
+	'REPEATER',
+	'FREQUENCY',
+	'ELEVATION',
+	'ACTIVITY',
+	'SIGNAL',
+	'REPORT',
+	'NUMBER',
+	'WX',
+	'SEND',
+	// Groups: things that go out as one phrase.
+	'R R',
+	'KN KN',
+	'CQ DE',
+	'OK OK',
+	'73 73',
+	'QTC QTC',
+	// The English that fills in the rest of a sentence.
+	'THE',
+	'AND',
+	'FOR',
+	'YOU',
+	'ARE',
+	'WITH',
+	'IS',
+	'NOT',
+	'THAT',
+	'THIS',
+	'HAVE',
+	'FROM',
+	'THEY',
+	'WILL',
+	'WAS',
+	'BUT',
+	'BE',
+	'AT',
+	'ONE',
+	'ALL',
+	'WE',
+	'CAN',
+	'SO',
+	'OR',
+	'MY',
+	'ME',
+	'YOUR',
 	'YES',
 	'NO',
-	'R',
-	'RR',
-	'73',
-	'QTH',
-	'QSL',
-	'ANTENNA',
-	'RADIO',
-	'MORSE',
-	'COPY',
-	'KEY',
-	'BEACON',
-	'RECEIVE',
-	'TRANSMIT',
-	'GOOD',
-	'NIGHT',
-	'BUDDY',
-	'OM',
-	'SK',
-	'OVER',
-	'KN KN',
-	'SOS SOS',
-	'CQ DE',
-	'R R',
-	'73 73',
-	'HAM RADIO',
-	'QTC QTC',
+	'HELP',
+	'KNOW',
+	'MANY',
+	'MORE',
+	'SOME',
+	'ONLY',
 ];
 
 function rng(): number {
@@ -100,6 +194,8 @@ export function nextQuestion(opts: {
 	mode: QuizMode;
 	choices: number;
 	stats: StatsShape;
+	/** Word-mode pool. Defaults to {@link WORD_LIST}. */
+	words?: readonly string[];
 	random?: () => number;
 }): Question {
 	const random = opts.random ?? rng;
@@ -108,7 +204,7 @@ export function nextQuestion(opts: {
 	// A word question is drawn from the word list, and its options are words too.
 	// Offering a group of letters as the alternatives made the answer the only
 	// thing on the button of the right length, which is not a question.
-	if (opts.mode === 'word') return wordQuestion(WORDS, opts.choices, random);
+	if (opts.mode === 'word') return wordQuestion(opts.words ?? WORD_LIST, opts.choices, random);
 
 	const solution = pickWeighted(chars, opts.stats, random);
 
@@ -116,18 +212,11 @@ export function nextQuestion(opts: {
 	const charsInMessage: MorseChar[] = encodeText(solution)[0]?.chars ?? [];
 	const pattern = charsInMessage.map((c) => c.pattern).join(' ');
 
-	// Distractors: prefer characters whose code is visually close to the answer,
-	// because confusing those is the actual failure mode being trained. Anything
-	// left over is filled from the next best scoring rather than at random, so a
-	// question never ends up comparing a one element code with a five element one.
-	const distractorPool = chars.filter((c) => c !== solution);
-	const ranked = rankNear(solutionPattern, distractorPool);
-	const wanted0 = Math.max(1, opts.choices - 1);
-	const chosen0 = shuffle(ranked.slice(0, Math.min(ranked.length, wanted0 * 3)), random).slice(0, wanted0);
-	const distractors = chosen0;
-
-	const wanted = Math.max(2, opts.choices);
-	const chosen = shuffle([...distractors.slice(0, wanted - 1), solution], random);
+	// Distractors: the characters whose code is hardest to tell from the answer's,
+	// because confusing those is the failure mode actually being trained.
+	const rows = Math.max(2, opts.choices);
+	const distractors = distractorsFor(solutionPattern, chars.filter((c) => c !== solution), rows - 1, random);
+	const chosen = shuffle([...distractors, solution], random);
 	const options: Option[] = chosen.map((c) => ({ char: c, pattern: encode(c) ?? '' }));
 
 	return {
@@ -173,20 +262,98 @@ export function pickWeighted(
 }
 
 /**
- * Rank characters by how easily they could be mistaken for the answer, closest
- * first: a shared code prefix counts for something, a difference in length
- * counts against, since length is the other half of what you hear.
+ * How many elements two codes have in common, in the same order.
+ *
+ * A prefix is the wrong measure for this. K is -.- and L is .-.., which is the
+ * confusion a learner is most likely to make, and they share no prefix at all,
+ * so comparing left to right scores them as far apart as K and E. Comparing in
+ * order rather than from the start sees the two elements they do have in
+ * common and the one that has moved.
  */
-function rankNear(pattern: string, candidates: string[]): string[] {
-	const scored: Array<[string, number]> = [];
+function commonElements(a: string, b: string): number {
+	let row = new Array<number>(b.length + 1).fill(0);
+	for (let i = 1; i <= a.length; i++) {
+		const next = new Array<number>(b.length + 1).fill(0);
+		for (let j = 1; j <= b.length; j++) {
+			next[j] = a[i - 1] === b[j - 1] ? row[j - 1] + 1 : Math.max(row[j], next[j - 1]);
+		}
+		row = next;
+	}
+	return row[b.length];
+}
+
+const dashCount = (pattern: string) => pattern.match(/-/g)?.length ?? 0;
+
+/**
+ * Rank characters by how easily they could be mistaken for the answer, closest
+ * first.
+ *
+ * Length leads and is not negotiable, which is the lesson word mode already
+ * learned the hard way: if the answer is the only option of its length then the
+ * question is answered by counting elements rather than by reading code, and an
+ * easy question is worse than a hard one. Ranking by length first also means
+ * the alternatives are always the same size as the answer, which is what makes
+ * them hard to separate by ear in the first place.
+ *
+ * Within one length, what counts is how much of the code the two have in common
+ * in order, then whether they use the same number of dashes. Same length, same
+ * dashes, elements moved around: that is the mistake that costs marks, and no
+ * prefix comparison can see it. F is ..-. and L is .-.., sharing no prefix at
+ * all but the same two dots and one dash. Q is --.- and Y is -.--, Z is --..
+ * and B is -... All three pairs are the same length and the same dashes in a
+ * different order, which is why they turn up against each other so often.
+ */
+type Neighbour = { char: string; lengthGap: number; nearness: number; shared: number };
+
+/** Score every candidate against the answer's code, closest first. */
+function rankNear(pattern: string, candidates: string[]): Neighbour[] {
+	const dashes = dashCount(pattern);
+	const scored: Neighbour[] = [];
 	for (const c of candidates) {
 		const p = encode(c) ?? '';
 		if (!p) continue;
-		let shared = 0;
-		while (shared < Math.min(p.length, pattern.length) && p[shared] === pattern[shared]) shared++;
-		scored.push([c, shared - Math.abs(p.length - pattern.length) * 0.5]);
+		const shared = commonElements(pattern, p);
+		scored.push({
+			char: c,
+			lengthGap: Math.abs(p.length - pattern.length),
+			// Elements in common, in order, count double: order is what carries the
+			// information, and one dash in the wrong slot is the whole confusion.
+			// Same dash count breaks ties between equal overlaps.
+			nearness: shared * 2 + (dashCount(p) === dashes ? 1 : 0),
+			shared,
+		});
 	}
-	return scored.sort((a, b) => b[1] - a[1]).map(([c]) => c);
+	return scored.sort((a, b) => a.lengthGap - b.lengthGap || b.nearness - a.nearness);
+}
+
+/**
+ * Choose the letters to offer beside an answer.
+ *
+ * Codes of the answer's own length come first and fill the row whenever there are
+ * enough of them. A different length is rejected on sight, so spending a slot on
+ * one costs a real rival, and the answer being the only option of its length is
+ * the same flaw that once made word mode offer MORSE against A and T.
+ *
+ * The shortest codes have too few of their own length to fill a row, so the rest
+ * is made up of codes sharing at least one element. E and T share nothing at all
+ * and are still a genuine question, because both are one element, but a dash
+ * code beside a dot code is not a question at all.
+ *
+ * The shortlist is a wide slice of the plausible set rather than the first few, so
+ * the same letter is not always offered against the same three.
+ */
+function distractorsFor(
+	pattern: string,
+	candidates: string[],
+	wanted: number,
+	random: () => number,
+): string[] {
+	const ranked = rankNear(pattern, candidates);
+	const sameLength = ranked.filter((n) => n.lengthGap === 0);
+	const band = (
+		sameLength.length >= wanted ? sameLength : [...sameLength, ...ranked.filter((n) => n.shared > 0)]
+	).slice(0, Math.max(1, wanted) * 3);
+	return shuffle(band, random).slice(0, Math.max(1, wanted)).map((n) => n.char);
 }
 
 /**
@@ -215,7 +382,7 @@ function rankWords(solution: string, candidates: string[]): string[] {
 		.map(([w]) => w);
 }
 
-function wordQuestion(words: string[], choices: number, random: () => number): Question {
+function wordQuestion(words: readonly string[], choices: number, random: () => number): Question {
 	const unique = [...new Set(words)];
 	const solution = pick(unique, random);
 	const wanted = Math.max(1, choices - 1);

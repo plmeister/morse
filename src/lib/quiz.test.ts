@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultGroups, nextQuestion, pickWeighted, pool, summarise } from './quiz';
+import { WORD_LIST, defaultGroups, nextQuestion, pickWeighted, pool, summarise } from './quiz';
 import { GROUPS, encode, type MorseGroup } from './morse';
 import type { StatsShape } from './stats.svelte';
 import { needScore, type CharStat } from './stats.svelte';
@@ -22,6 +22,19 @@ function seeded(seed: number): () => number {
 		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
 		return ((t ^ (t >>> 14)) >>> 0) / 0x1_0000_0000;
 	};
+}
+
+/** Elements two codes share in order, so a test can judge how confusable two options are. */
+function lcs(a: string, b: string): number {
+	let row = new Array<number>(b.length + 1).fill(0);
+	for (let i = 1; i <= a.length; i++) {
+		const next = new Array<number>(b.length + 1).fill(0);
+		for (let j = 1; j <= b.length; j++) {
+			next[j] = a[i - 1] === b[j - 1] ? row[j - 1] + 1 : Math.max(row[j], next[j - 1]);
+		}
+		row = next;
+	}
+	return row[b.length];
 }
 
 function emptyStats(): StatsShape {
@@ -324,6 +337,147 @@ describe('nextQuestion', () => {
 		// well formed rather than repeating the answer as its own distractor.
 		const q = nextQuestion({ groups: ['letters'], mode: 'char', choices: 4, stats: emptyStats(), random: seeded(23) });
 		expect(q.options.length).toBeGreaterThanOrEqual(2);
+	});
+});
+
+describe('WORD_LIST', () => {
+	const bare = (w: string) => w.replace(/\s/g, '');
+
+	it('is a hundred distinct entries, none of them a single character', () => {
+		expect(WORD_LIST).toHaveLength(100);
+		expect(new Set(WORD_LIST).size).toBe(WORD_LIST.length);
+		// A one letter word has no rivals of its own length, so it would be the
+		// only thing on the options row of the right size.
+		expect(WORD_LIST.filter((w) => bare(w).length < 2)).toEqual([]);
+	});
+
+	it('only holds words every character of which can be sent', () => {
+		const unsendable = WORD_LIST.filter((w) => [...w].some((c) => c !== ' ' && !encode(c)));
+		expect(unsendable).toEqual([]);
+	});
+
+	it('can make a fair question for every word in it', () => {
+		const unfair: string[] = [];
+		for (let seed = 1; seed <= 300; seed++) {
+			const q = nextQuestion({
+				groups: ['letters'],
+				mode: 'word',
+				choices: 4,
+				stats: emptyStats(),
+				random: seeded(seed),
+			});
+			const answer = bare(q.solution);
+			expect(q.options.filter((o) => o.char === q.solution)).toHaveLength(1);
+			expect(new Set(q.options.map((o) => o.char)).size).toBe(q.options.length);
+			// Nothing more than one character different in length, or the answer
+			// is found by counting characters instead of reading code.
+			for (const o of q.options) {
+				if (Math.abs(bare(o.char).length - answer.length) > 1) unfair.push(`${q.solution} vs ${o.char}`);
+			}
+		}
+		expect(unfair).toEqual([]);
+	});
+});
+
+describe('confusable distractors', () => {
+	const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+	/**
+	 * Ask many questions, keep only those that came up with one given answer, and
+	 * report how often each letter was offered beside it. There is no way to ask
+	 * for one letter outright, so the answer is weighted in to be drawn often;
+	 * unseen letters all carry the same weight, so it lands about one time in six.
+	 */
+	const offeredWith = (answer: string, tries = 600) => {
+		const tally = new Map<string, number>();
+		let asked = 0;
+		for (let seed = 1; seed <= tries; seed++) {
+			const q = nextQuestion({
+				groups: ['letters'],
+				mode: 'char',
+				choices: 4,
+				stats: { ...emptyStats(), chars: { [answer]: statFor({ seen: 40, correct: 0 }) } },
+				random: seeded(seed),
+			});
+			if (q.solution !== answer) continue;
+			asked++;
+			for (const o of q.options) {
+				if (o.char !== answer) tally.set(o.char, (tally.get(o.char) ?? 0) + 1);
+			}
+		}
+		expect(asked, `never got enough questions about ${answer}`).toBeGreaterThan(30);
+		return (other: string) => (tally.get(other) ?? 0) / asked;
+	};
+
+	it('asks letters that are a rotation of the same code against each other', () => {
+		// F is ..-. and L is .-.., Q is --.- and Y is -.--, Z is --.. and
+		// B is -...: same length, same dashes, elements moved round, and not a
+		// shared prefix between them to give the game away.
+		for (const [answer, near] of [
+			['F', 'L'],
+			['L', 'F'],
+			['Q', 'Y'],
+			['Y', 'Q'],
+			['Z', 'B'],
+			['B', 'Z'],
+			['P', 'C'],
+			['C', 'P'],
+			['A', 'N'],
+			['N', 'A'],
+			['U', 'D'],
+			['D', 'U'],
+		] as const) {
+			const rate = offeredWith(answer);
+			expect(rate(near), `${answer} should often be asked against ${near}`).toBeGreaterThan(0.15);
+		}
+	});
+
+	it('never offers a code with nothing in common with the answer', () => {
+		for (const answer of letters) {
+			const code = encode(answer)!;
+			for (let seed = 1; seed <= 60; seed++) {
+				const q = nextQuestion({
+					groups: ['letters'],
+					mode: 'char',
+					choices: 4,
+					stats: { ...emptyStats(), chars: { [answer]: statFor({ seen: 40, correct: 0 }) } },
+					random: seeded(seed),
+				});
+				if (q.solution !== answer) continue;
+				for (const o of q.options) {
+					if (o.char === answer) continue;
+					const other = encode(o.char)!;
+					// Plausible means sharing elements in order with the answer, or
+					// being the same length as it: one right reading and three
+					// unrelated ones is a guess, not a question.
+					expect(
+						lcs(code, other) > 0 || other.length === code.length,
+						`${answer} (${code}) was asked against ${o.char} (${other})`,
+					).toBe(true);
+				}
+			}
+		}
+	});
+
+	it('never leaves the answer as the only option of its length', () => {
+		// Otherwise the question is answered by counting elements, which is the
+		// flaw that made word mode once offer MORSE against A and T.
+		for (const answer of letters) {
+			const code = encode(answer)!;
+			if (letters.filter((c) => encode(c)!.length === code.length).length < 4) continue;
+			for (let seed = 1; seed <= 60; seed++) {
+				const q = nextQuestion({
+					groups: ['letters'],
+					mode: 'char',
+					choices: 4,
+					stats: { ...emptyStats(), chars: { [answer]: statFor({ seen: 40, correct: 0 }) } },
+					random: seeded(seed),
+				});
+				if (q.solution !== answer) continue;
+				const rivals = q.options.filter((o) => o.char !== answer && encode(o.char)!.length === code.length);
+				expect(rivals.length, `${answer} (${code}) was asked with no rival of its length`).toBeGreaterThan(0);
+			}
+		}
 	});
 });
 
