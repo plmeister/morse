@@ -190,7 +190,8 @@ export function defaultGroups(includeDigits: boolean, includePunct: boolean): Mo
  * to crowd out everything else.
  */
 /** The two ways of asking a question the user answers by picking. */
-export type QuizKind = Exclude<QuizMode, 'key'>;
+/** The modes that build a question to pick from, as opposed to the sending ones. */
+export type QuizKind = 'char' | 'word';
 
 export function nextQuestion(opts: {
 	groups: MorseGroup[];

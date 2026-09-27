@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { gradeKeying, keyingTarget, targetChars } from './keying';
+import {
+	gradeKeying,
+	gradeText,
+	isKeyablePassage,
+	keyingTarget,
+	passageLayout,
+	passageTarget,
+	PASSAGES,
+	targetChars,
+} from './keying';
 import { GROUPS } from './morse';
 import { WORD_LIST } from './quiz';
+import type { KeyingVerdict } from './keying';
 import type { StatsShape } from './stats.svelte';
 
 function emptyStats(): StatsShape {
@@ -146,5 +156,158 @@ describe('targetChars', () => {
 		expect(targetChars('ANT').map((c) => c.char)).toEqual(['A', 'N', 'T']);
 		expect(targetChars('K').map((c) => c.char)).toEqual(['K']);
 		expect(targetChars('')).toEqual([]);
+	});
+});
+
+describe('gradeText on a passage', () => {
+	// Every letter of a passage, so the marks line up with the word gaps rather
+	// than with the characters in the string.
+	const marks = (v: KeyingVerdict) => v.marks.join(' ');
+
+	it('waits while nothing has been sent', () => {
+		const v = gradeText('ANT', '');
+		expect(v.done).toBe(false);
+		expect(marks(v)).toBe('pending pending pending');
+	});
+
+	it('takes a word gap as sent and calls the question done', () => {
+		const v = gradeText('ANT', 'ANT');
+		expect(v.done).toBe(true);
+		expect(v.correct).toBe(true);
+		expect(marks(v)).toBe('right right right');
+	});
+
+	it('marks the last character wrong but keeps going, and reports the first', () => {
+		const v = gradeText('ANT', 'ANE');
+		expect(v.done).toBe(true);
+		expect(v.correct).toBe(false);
+		expect(marks(v)).toBe('right right wrong');
+		expect(v.wrongAt).toBe(2);
+	});
+
+	it('keeps sending past a wrong code, which is the point of a passage', () => {
+		const v = gradeText('ANT', 'AXT');
+		expect(v.done).toBe(true);
+		expect(marks(v)).toBe('right wrong right');
+		expect(v.wrongAt).toBe(1);
+	});
+
+	it('treats the gap inside a word as a pause it did not ask for', () => {
+		const v = gradeText('ANT', 'A NT');
+		expect(v.done).toBe(true);
+		expect(v.spacingAt).toBe(1);
+		expect(marks(v)).toBe('right gap right');
+	});
+
+	it('reads a missing gap as the words running together, letters and all', () => {
+		// GO SO keyed as GOSOXO: the S lands where the gap after GO was wanted, so
+		// the pause is charged to the O in front of it and the run carries on. A
+		// passage lines the characters up rather than giving up on them, so the two
+		// that follow are judged against S and O: the early O against the S it
+		// should have waited for, and the X against the O that should have followed.
+		const v = gradeText('GO SO', 'GOSOXO');
+		expect(v.done).toBe(true);
+		expect(v.spacingAt).toBe(1);
+		expect(marks(v)).toBe('right gap wrong wrong');
+		expect(v.wrongAt).toBe(2);
+	});
+
+	it('does not step on for a gap, so the letters either side still line up', () => {
+		// The spurious gap is charged to N, and T is then judged against T rather
+		// than against the gap.
+		const v = gradeText('ANT', 'A  NT');
+		expect(v.spacingAt).toBe(1);
+		expect(marks(v)).toBe('right gap right');
+	});
+
+	it('stops at the first mistake when asked to, as a single target does', () => {
+		const v = gradeText('ANT', 'AXT', { stopAtFirst: true });
+		expect(v.done).toBe(true);
+		expect(marks(v)).toBe('right wrong pending');
+	});
+
+	it('ignores a pause after the last character', () => {
+		expect(gradeText('K', 'K ').correct).toBe(true);
+		expect(gradeText('ANT', 'ANT  ').correct).toBe(true);
+	});
+
+	it('ignores a stray keypress after the last character, as a single target does', () => {
+		// GO is one word, so there is no gap in it to miss and the third O is past
+		// the end of the question rather than in the middle of it.
+		expect(gradeText('GO', 'GOO').correct).toBe(true);
+		expect(gradeText('GO SO', 'GO SOX').correct).toBe(true);
+	});
+
+	it('is not done until the word gaps are sent as well as the letters', () => {
+		expect(gradeText('GO SO', 'GO SO').done).toBe(true);
+		// Four characters with no pause in them can only ever fill G, the gap, O
+		// and the second gap, so the run is still open.
+		expect(gradeText('GO SO', 'GOSO').done).toBe(false);
+		expect(gradeText('GO SO', 'GO').done).toBe(false);
+	});
+
+	it('grades the whole run rather than stopping at the first slip', () => {
+		const v = gradeText('GO HOME', 'XO HOME');
+		expect(v.done).toBe(true);
+		expect(marks(v)).toBe('wrong right right right right right');
+		expect(v.wrongAt).toBe(0);
+		expect(v.correct).toBe(false);
+	});
+
+	it('reports only the first pause fault, since one is worth saying', () => {
+		const v = gradeText('ANT', 'A N T');
+		expect(v.spacingAt).toBe(1);
+	});
+});
+
+describe('passageLayout', () => {
+	it('says which box each word starts at', () => {
+		expect(passageLayout('GO SO')).toEqual([
+			{ word: 'GO', offset: 0 },
+			{ word: 'SO', offset: 2 },
+		]);
+	});
+
+	it('copes with a run of spaces and the ends', () => {
+		expect(passageLayout('  A   BB ')).toEqual([
+			{ word: 'A', offset: 0 },
+			{ word: 'BB', offset: 1 },
+		]);
+		expect(passageLayout('')).toEqual([]);
+	});
+});
+
+describe('the passage pool', () => {
+	it('is nothing but words of letters, so it stays sendable', () => {
+		expect(PASSAGES.length).toBeGreaterThan(20);
+		for (const p of PASSAGES) {
+			expect(isKeyablePassage(p), p).toBe(true);
+			expect(p.length).toBeGreaterThan(4);
+		}
+	});
+
+	it('has no passage twice', () => {
+		expect(new Set(PASSAGES).size).toBe(PASSAGES.length);
+	});
+
+	it('draws only from the pool', () => {
+		expect(PASSAGES).toContain(passageTarget({ random: fixed(0) }));
+	});
+
+	it('does not draw the passage just drawn twice running', () => {
+		const first = passageTarget({ random: fixed(0) });
+		const next = passageTarget({ previous: first, random: fixed(0) });
+		expect(next).not.toBe(first);
+		expect(PASSAGES).toContain(next);
+	});
+
+	it('keeps drawing when the pool is a single passage', () => {
+		const only = ['SOS'];
+		expect(passageTarget({ passages: only, previous: 'SOS', random: fixed(0) })).toBe('SOS');
+	});
+
+	it('refuses an empty pool rather than drawing nothing', () => {
+		expect(() => passageTarget({ passages: [] })).toThrow();
+		expect(() => passageTarget({ passages: ['123'] })).toThrow();
 	});
 });

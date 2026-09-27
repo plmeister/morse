@@ -18,9 +18,10 @@ import {
 
 const KEY = 'morse.settings.v1';
 
-export type QuizMode = 'char' | 'word' | 'key';
+export type QuizMode = 'char' | 'word' | 'key' | 'passage';
 /** What keying practice asks the user to send. The two ways of being asked. */
-export type KeyTargetKind = Exclude<QuizMode, 'key'>;
+/** The single things keying practice asks for, as opposed to a whole passage. */
+export type KeyTargetKind = 'char' | 'word';
 export type KeyAction = 'none' | 'selectAll' | 'copy' | 'clear' | 'send';
 
 export const DEFAULTS = {

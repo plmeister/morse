@@ -4,9 +4,15 @@
 	import QuizKeying from './QuizKeying.svelte';
 	import { tone } from '$lib/audio';
 	import { keyer } from '$lib/keyer.svelte';
-	import { keyingTarget, targetChars, type KeyingVerdict, type Mark } from '$lib/keying';
+	import {
+		keyingTarget,
+		passageTarget,
+		targetChars,
+		type KeyingVerdict,
+		type Mark,
+	} from '$lib/keying';
 	import { encode, encodePhrase, GROUPS, type MorseChar, type MorseGroup } from '$lib/morse';
-	import { defaultGroups, nextQuestion, type Question } from '$lib/quiz';
+	import { defaultGroups, nextQuestion, type Question, type QuizKind } from '$lib/quiz';
 	import { settings, type QuizMode } from '$lib/settings.svelte';
 	import { stats } from '$lib/stats.svelte';
 	import { timingsForWpm } from '$lib/timing';
@@ -20,7 +26,7 @@
 	let playing = $state(false);
 
 	/** Keying practice asks the user to send this, and to send it themselves. */
-	let keying = $state<{ target: string; sent: string; gapAt: number } | null>(null);
+	let keying = $state<{ target: string; sent: string; gapAt: number; marks: Mark[] } | null>(null);
 	/**
 	 * Bumped for every question. The keying view is remounted on this rather than
 	 * on the target, because the same target twice in a row is ordinary: keyed
@@ -44,7 +50,9 @@
 	);
 	const mode = $derived<QuizMode>(settings.get('quizMode'));
 	/** True while the user is sending the answer rather than picking one. */
-	const keyingMode = $derived(mode === 'key');
+	const keyingMode = $derived(mode === 'key' || mode === 'passage');
+	/** A whole phrase to key in one run, rather than a single target. */
+	const passageMode = $derived(mode === 'passage');
 	const keyTarget = $derived(settings.get('keyTarget'));
 	const choices = $derived(settings.get('choices'));
 	const sessionLength = $derived(settings.get('sessionLength'));
@@ -93,21 +101,24 @@
 
 		// Compared against mode rather than the keyingMode flag so that mode
 		// narrows to the two modes that build a question to pick from.
-		if (mode === 'key') {
+		if (keyingMode) {
 			// Nothing is played: the whole point is that the answer comes from the
 			// user, and hearing it first would hand it over.
 			question = null;
 			keyer.clear();
 			keying = {
-				target: keyingTarget({ kind: keyTarget, groups, stats: stats.raw }),
+				target: passageMode
+					? passageTarget({ previous: keying?.target })
+					: keyingTarget({ kind: keyTarget, groups, stats: stats.raw }),
 				sent: '',
 				gapAt: -1,
+				marks: [],
 			};
 			return;
 		}
 
 		keying = null;
-		question = nextQuestion({ groups, mode, choices, stats: stats.raw });
+		question = nextQuestion({ groups, mode: mode as QuizKind, choices, stats: stats.raw });
 		void playQuestion(question);
 	}
 
@@ -129,6 +140,28 @@
 
 	/** The code for a keying target, which is only ever shown as feedback. */
 	const keyPattern = $derived(keying ? encodePhrase(keying.target) : '');
+	/** A passage is drawn as a phrase because it asks for word gaps of its own. */
+	const keyPatternIsPhrase = $derived(passageMode || keyTarget === 'word');
+	const keySent = $derived(keying ? keying.marks.filter((m) => m === 'right').length : 0);
+	const keyTotal = $derived(keying ? keying.marks.length : 0);
+	/** The character a gap was charged to, so the verdict can name it. */
+	/**
+	 * True when the only thing wrong was a pause, so the verdict can say exactly that.
+	 * A wrong code settles the question on its own in the single target modes, but it can
+	 * follow a wrong pause in a passage, and claiming every character was right then would
+	 * be a lie.
+	 */
+	const onlyPausesWrong = $derived(
+		keying !== null && keying.gapAt >= 0 && !keying.marks.includes('wrong'),
+	);
+	const gapLetter = $derived(
+		keying && keying.gapAt >= 0 ? (targetChars(keying.target)[keying.gapAt]?.char ?? '') : '',
+	);
+	/**
+	 * The sending modes wait to be told to go on. Their feedback is the whole
+	 * point of the question, and it is the one thing a timed beat takes away.
+	 */
+	const autoAdvance = $derived(settings.get('autoAdvance') && !keyingMode);
 
 	function answerWith(index: number) {
 		if (phase !== 'asking' || !question || answer) return;
@@ -138,7 +171,12 @@
 	/** The user keyed the answer to a keying question, correctly or not. */
 	function onKeyed(result: { verdict: KeyingVerdict; sent: string }) {
 		if (phase !== 'asking' || !keying) return;
-		keying = { ...keying, sent: result.sent, gapAt: result.verdict.spacingAt };
+		keying = {
+			...keying,
+			sent: result.sent,
+			gapAt: result.verdict.spacingAt,
+			marks: result.verdict.marks,
+		};
 		applyAnswer(result.verdict.correct, -1, targetChars(keying.target), result.verdict.marks);
 	}
 
@@ -166,7 +204,7 @@
 			streak = 0;
 		}
 
-		if (settings.get('autoAdvance')) {
+		if (autoAdvance) {
 			// Longer beat on a miss so the correct answer can actually be read.
 			advanceTimer = setTimeout(
 				() => newQuestion(),
@@ -192,9 +230,17 @@
 
 	// Keyboard shortcuts for the options: 1-6.
 	function onKeyDown(e: KeyboardEvent) {
-		// In keying practice every key is a dot or a dash, so the option
-		// shortcuts would send the wrong thing entirely.
-		if (keyingMode) return;
+		// In the sending modes every key is a dot or a dash, so the option
+		// shortcuts would send the wrong thing entirely. Enter is longer than one
+		// character, so the keyer leaves it alone, which makes it free to move on
+		// once the answer is settled.
+		if (keyingMode) {
+			if (phase === 'answered' && e.key === 'Enter') {
+				e.preventDefault();
+				newQuestion();
+			}
+			return;
+		}
 		if (phase !== 'asking' || !question || answer) return;
 		const target = e.target as HTMLElement | null;
 		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
@@ -261,9 +307,25 @@
 						<em class="hint">You send it. The code is only shown afterwards.</em>
 					</span>
 				</label>
+				<label class="mode">
+					<input
+						type="radio"
+						name="mode"
+						value="passage"
+						checked={mode === 'passage'}
+						onchange={() => settings.set('quizMode', 'passage')}
+					/>
+					<span>
+						<strong>Key from text</strong>
+						<em class="hint"
+							>Key whole phrases, word gaps and all. A slip does not end it; every character
+								is marked.</em
+							>
+					</span>
+				</label>
 			</fieldset>
 
-			{#if keyingMode}
+			{#if mode === 'key'}
 				<fieldset class="modes">
 					<legend class="section-title">Send what</legend>
 					<label class="mode">
@@ -385,7 +447,12 @@
 
 		{#if keyingMode && keying}
 			{#key questionId}
-				<QuizKeying target={keying.target} done={phase === 'answered'} onresult={onKeyed} />
+				<QuizKeying
+					target={keying.target}
+					done={phase === 'answered'}
+					grouped={passageMode}
+					onresult={onKeyed}
+				/>
 			{/key}
 		{:else if question}
 		<ul class="options">
@@ -423,17 +490,26 @@
 					{#if keyingMode && keying}
 						{#if answer.correct}
 							Sent correctly
-						{:else if keying.gapAt >= 0}
+						{:else if onlyPausesWrong}
+							<!--
+								Said only when the pauses were the whole of it. A passage usually
+								has a wrong code as well, and then the score and the marked-up text
+								say more than either fault on its own.
+							-->
 							<span class="muted">Every character right, but the pause before</span>
-							<strong>{[...keying.target.replace(/\s/g, '')][keying.gapAt]}</strong>
+							<strong>{gapLetter}</strong>
 							<span class="muted"
-								>was long enough to read as the end of the word. Faster between characters.</span
+								>{passageMode ? 'does not fall where the text puts it' : 'was long enough to read as the end of the word'}.</span
 							>
+						{:else if passageMode}
+							<span class="muted">You sent</span>
+							<strong>{keySent} of {keyTotal}</strong>
+							<span class="muted">characters right</span>
 						{:else}
 							<span class="muted">You sent</span>
 							<strong>{keying.sent.trim() || 'nothing'}</strong>
 						{/if}
-						<Pattern pattern={keyPattern} size="md" phrase={keyTarget === 'word'} />
+						<Pattern pattern={keyPattern} size="md" phrase={keyPatternIsPhrase} />
 					{:else if question}
 						{#if answer.correct}
 							Correct
@@ -447,7 +523,7 @@
 						/>
 					{/if}
 				</div>
-				{#if settings.get('autoAdvance')}
+				{#if autoAdvance}
 					<p class="hint">Next question shortly…</p>
 				{:else}
 					<button class="btn btn-primary" type="button" onclick={newQuestion}>Next</button>

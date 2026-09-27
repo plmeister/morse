@@ -2,22 +2,37 @@
 	import KeyPad from './KeyPad.svelte';
 	import { keyer } from '$lib/keyer.svelte';
 	import { handleKeyDown, handleKeyUp } from '$lib/key-typing';
-	import { gradeKeying, type KeyingVerdict } from '$lib/keying';
+	import { gradeKeying, gradeText, passageLayout, type KeyingVerdict } from '$lib/keying';
 
 	let {
 		target,
 		done = false,
+		grouped = false,
 		onresult,
 	}: {
 		target: string;
 		/** Set once the answer is settled: the marks stay, the key does not. */
 		done?: boolean;
+		/**
+		 * Group the marks by word, and judge the word gaps themselves, which is
+		 * what a target with word gaps in it is asking for.
+		 */
+		grouped?: boolean;
 		onresult: (result: { verdict: KeyingVerdict; sent: string }) => void;
 	} = $props();
 
 	const snap = $derived(keyer.snapshot);
 	const letters = $derived([...target.replace(/\s/g, '')]);
-	const verdict = $derived(gradeKeying(target, snap.output));
+	/**
+	 * A single target stops at the first mistake, since nothing after it can be
+	 * read as an answer any more. A passage does not: the rest is still worth
+	 * sending and still worth marking.
+	 */
+	const verdict = $derived(
+		grouped ? gradeText(target, snap.output) : gradeKeying(target, snap.output),
+	);
+	/** The target split into words, each with the box its first character fills. */
+	const words = $derived(grouped ? passageLayout(target) : []);
 
 	// The keyer is shared with the key tab and still holds the previous answer,
 	// which would be graded against this one.
@@ -49,17 +64,34 @@
 <div class="keying">
 	<p class="target" aria-live="polite">{target}</p>
 
-	<div class="marks" aria-hidden="true">
-		{#each letters as letter, i (i)}
-			<span
-				class="mark"
-				class:right={verdict.marks[i] === 'right'}
-				class:wrong={verdict.marks[i] === 'wrong'}
-				class:gap={verdict.marks[i] === 'gap'}
-			>
-				{letter}
-			</span>
-		{/each}
+	<div class="marks" class:grouped aria-hidden="true">
+		{#if grouped}
+			{#each words as w, wi (w.offset)}
+				{#if wi > 0}<span class="mark-gap" title="word gap">/</span>{/if}
+				{#each [...w.word] as letter, li (li)}
+					{@const i = w.offset + li}
+					<span
+						class="mark"
+						class:right={verdict.marks[i] === 'right'}
+						class:wrong={verdict.marks[i] === 'wrong'}
+						class:gap={verdict.marks[i] === 'gap'}
+					>
+						{letter}
+					</span>
+				{/each}
+			{/each}
+		{:else}
+			{#each letters as letter, i (i)}
+				<span
+					class="mark"
+					class:right={verdict.marks[i] === 'right'}
+					class:wrong={verdict.marks[i] === 'wrong'}
+					class:gap={verdict.marks[i] === 'gap'}
+				>
+					{letter}
+				</span>
+			{/each}
+		{/if}
 	</div>
 
 	{#if !done}
@@ -70,7 +102,10 @@
 		removes one, Escape clears.
 		</p>
 		<p class="hint">
-		{#if letters.length > 1}
+		{#if grouped}
+			Keep the pause between characters short, and the one between words long: the marks above
+			ask for both. A wrong code does not stop it, so keep going and read the marks at the end.
+		{:else if letters.length > 1}
 			Keep the pause between characters short. Long enough and it reads as the end of the word,
 			which is marked down even though every character was sent.
 		{:else}
@@ -103,6 +138,23 @@
 		flex-wrap: wrap;
 		gap: 0.3rem;
 		justify-content: center;
+	}
+
+		/*
+	 * A passage is a long row of boxes, so they sit closer together and wrap
+	 * sooner. The single target has one box or a handful and can be as large as
+	 * it likes.
+	 */
+	.marks.grouped {
+		gap: 0.2rem;
+	}
+
+	/* The word gaps, as the target sets them out. */
+	.mark-gap {
+		align-self: center;
+		color: var(--faint);
+		font-weight: 700;
+		padding: 0 0.1rem;
 	}
 
 	.mark {
