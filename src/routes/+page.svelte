@@ -58,6 +58,20 @@
 	const weakCount = $derived(stats.weakest().length);
 
 	// Switch tabs with 1-4, but never while the quiz has those keys bound.
+	/**
+	 * A long press raises the platform's own menu, and on iOS the callout, and
+	 * neither has anything to say about a Morse trainer that answers to a held
+	 * finger. The CSS stops the selection and the callout; this stops the menu,
+	 * which arrives as an event long after the press and so has to be caught
+	 * here. Text fields keep theirs, since choosing and replacing what is in
+	 * them is the point of them.
+	 */
+	function onContextMenu(e: MouseEvent) {
+		const target = e.target as Element | null;
+		if (target?.closest('input, textarea, select, [contenteditable]')) return;
+		e.preventDefault();
+	}
+
 	function onKeyDown(e: KeyboardEvent) {
 		const target = e.target as HTMLElement | null;
 		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
@@ -110,7 +124,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} oncontextmenu={onContextMenu} />
 
 <div class="app">
 	<header>

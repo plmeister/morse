@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { keyer } from '$lib/keyer.svelte';
 
-	const snap = $derived(keyer.snapshot);
+	/**
+	 * Only the pressed state, which is the only part of the snapshot the key shows.
+	 * Taking the whole snapshot would re-run this component's template on every
+	 * character appended to the buffer, for a key whose face does not change when
+	 * a character is appended.
+	 */
+	const pressing = $derived(keyer.snapshot.pressing);
 
 	/** Pointer id currently holding the key down, so a second finger is ignored. */
 	let activePointer: number | null = null;
@@ -56,7 +62,7 @@
      already keys a dot. -->
 <div
 	class="key"
-	class:down={snap.pressing}
+	class:down={pressing}
 	role="button"
 	tabindex="0"
 	aria-label="Morse key. Hold to send a dash, tap to send a dot."
@@ -68,7 +74,7 @@
 	onselectstart={(e) => e.preventDefault()}
 	ondragstart={(e) => e.preventDefault()}
 >
-	<span class="key-label">{snap.pressing ? 'SENDING' : 'KEY'}</span>
+	<span class="key-label">KEY</span>
 </div>
 
 <style>
@@ -103,16 +109,18 @@
 		-webkit-touch-callout: none;
 		-webkit-tap-highlight-color: transparent;
 		cursor: pointer;
-		transition:
-			background 0.09s,
-			box-shadow 0.09s,
-			transform 0.06s;
+		/*
+		 * The press is signalled by the face colour alone, and it is the only
+		 * animated property. Moving the key or swapping its shadow as well would
+		 * cost a repaint and a layout of the whole dock for a state the colour
+		 * already says, and this button is pressed over and over by someone
+		 * keying a character at a time.
+		 */
+		transition: background 0.09s;
 	}
 
 	.key.down {
 		background: linear-gradient(180deg, var(--key-face-2), var(--key-face-down));
-		box-shadow: inset 0 4px 12px rgb(0 0 0 / 0.32);
-		transform: translateY(2px);
 	}
 
 	.key-label {
@@ -121,12 +129,6 @@
 		letter-spacing: 0.16em;
 		color: var(--key-ink);
 		line-height: 1;
-	}
-
-	/* The label is the only text left on the key, so it needs to be unmistakable
-	   which of two states the key is in. */
-	.key.down .key-label {
-		letter-spacing: 0.2em;
 	}
 
 	/* A short screen, held upright, has the least to spare: the key is still a

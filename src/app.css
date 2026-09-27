@@ -58,6 +58,49 @@ body {
 
 body {
 	-webkit-tap-highlight-color: transparent;
+	/*
+	 * A keying surface rather than a document: a held finger has to stay a hold
+	 * rather than turning into a text selection, a magnifier, or the platform's
+	 * long-press menu. These two inherited declarations cover the first two, and
+	 * neither of them can be fixed by the other. The long-press menu arrives as
+	 * an event and is caught in +page.svelte.
+	 */
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
+}
+
+/*
+ * Everything in this app is a control meant to be tapped, so all of it takes
+ * `manipulation`: panning and pinch zoom carry on working, and the double-tap
+ * zoom stops. On the body alone this would already be enough, because the
+ * browser intersects a hit element's touch-action with its ancestors', but that
+ * is a detail to lean on only where it is the alternative. Stated on the
+ * elements, the rule reads as the instruction it is, and it holds even for a
+ * control that later sets its own touch-action for an unrelated reason. The key
+ * still overrides it with `none`, since a hold there has to be a hold rather
+ * than a drag.
+ */
+*,
+*::before,
+*::after {
+	touch-action: manipulation;
+}
+
+/*
+ * The one place in the app where selecting text is the entire point: the send
+ * field, and any other field a value gets typed into. Without this the copy of
+ * what the keyer sent, which used to be selected straight off the key tab
+ * output, would no longer be selectable anywhere.
+ */
+input[type='text'],
+input[type='number'],
+input[type='search'],
+textarea,
+[contenteditable] {
+	user-select: text;
+	-webkit-user-select: text;
+	-webkit-touch-callout: default;
 }
 
 button,
