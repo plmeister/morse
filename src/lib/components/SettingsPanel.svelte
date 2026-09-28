@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Slider from './Slider.svelte';
+	import { tone } from '$lib/audio';
 	import { settings } from '$lib/settings.svelte';
 	import { stats } from '$lib/stats.svelte';
 	import { GROUPS, GROUP_LABELS, type MorseGroup } from '$lib/morse';
@@ -14,6 +15,25 @@
 		MIN_WORD_GAP_MS,
 		timingsForWpm,
 	} from '$lib/timing';
+
+	/**
+	 * The device's own delay between a sound being rendered and it being heard.
+	 *
+	 * Read into state rather than derived, because the engine is a plain class
+	 * and nothing here would tell a derived value it had gone stale. The panel
+	 * remounts each time it is opened, which is what picks up a changed figure
+	 * after, say, a Bluetooth headset arrives and adds its own.
+	 */
+	let latency = $state(0);
+	$effect(() => {
+		latency = tone.outputLatencyMs;
+		// The context is built at start up, so this is normally settled already;
+		// the frame covers the panel being opened before that has happened.
+		const id = requestAnimationFrame(() => (latency = tone.outputLatencyMs));
+		return () => cancelAnimationFrame(id);
+	});
+	/** Chrome under-reports it on desktop, where it is never the bottleneck. */
+	const latencyFloor = $derived(latency > 0 && latency < 20 ? ' (under-reported here)' : '');
 
 	const SLOW = { ...timingsForWpm(5) };
 	const FAST = { ...timingsForWpm(40) };
@@ -209,6 +229,17 @@
 		<p class="hint">
 			Mute keeps your volume, so unmuting puts you back where you were.
 		</p>
+		<!--
+			The device's own answer time, read once the context exists. A phone that
+			answers in tens of milliseconds cannot be made to answer sooner by
+			anything in the app, and knowing the number stops that being guessed at
+			from how the sidetone feels.
+		-->
+		{#if latency > 0}
+			<p class="hint latency">
+				Audio answer time: {latency}ms{latencyFloor}
+			</p>
+		{/if}
 	</section>
 
 	<!-- ------------------------------------------------------------------- key -->
@@ -353,6 +384,10 @@
 		display: flex;
 		align-items: flex-end;
 		gap: 0.6rem;
+	}
+
+	.latency {
+		font-variant-numeric: tabular-nums;
 	}
 
 	.volume-slider {

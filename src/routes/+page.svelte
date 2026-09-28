@@ -15,6 +15,16 @@
 
 	type Tab = 'key' | 'quiz' | 'stats' | 'settings';
 
+	// Paid here rather than on the first key, because it is worth a real
+	// 55ms the very first time in a page: the engine builds an oscillator, two
+	// gain stages and a context, and the first of those is expensive in a way the
+	// rest never are. A context made here is running by the time anyone touches
+	// the key, so that press has nothing left to set up. The autoplay warning
+	// Chrome logs for it is a console message about a sound nobody heard.
+	$effect.pre(() => {
+		tone.warm();
+	});
+
 	let tab = $state<Tab>('key');
 	let showSend = $state(false);
 	let message = $state('');
