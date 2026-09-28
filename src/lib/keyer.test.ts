@@ -230,7 +230,34 @@ describe('hooks', () => {
 		env.advance(123);
 		env.release();
 		expect(onPress).toHaveBeenCalledTimes(1);
-		expect(onRelease).toHaveBeenCalledWith(123);
+		expect(onRelease).toHaveBeenCalledWith(123, expect.any(Number));
+	});
+
+	it('times the hold from the event, not from when the handler ran', () => {
+		// A phone busy enough to run the handler 40ms late would otherwise
+		// stretch every element by 40ms, which is the difference between a dot
+		// and a dash.
+		const onSymbol = vi.fn();
+		const env = createTestKeyer({ onSymbol });
+		env.press(1000);
+		env.release(1060);
+		expect(env.keyer.buffer).toBe('.');
+		env.press(2000);
+		env.release(2300);
+		expect(env.keyer.buffer).toBe('.-');
+	});
+
+	it('passes the event timestamp on, so the tone lands with the key', () => {
+		// The sidetone is anchored to when the key went down, not to when the
+		// handler ran, which on a slow phone is the difference between the two.
+		const onPress = vi.fn();
+		const onRelease = vi.fn();
+		const env = createTestKeyer({ onPress, onRelease });
+		env.press(1000.5);
+		env.advance(90);
+		env.release(1400.25);
+		expect(onPress).toHaveBeenCalledWith(1000.5);
+		expect(onRelease.mock.calls[0]?.[1]).toBe(1400.25);
 	});
 
 	it('reports each symbol as it is classified', () => {

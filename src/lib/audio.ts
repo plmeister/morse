@@ -13,6 +13,19 @@ import type { Timings } from './timing';
 const ATTACK_S = 0.008;
 const RELEASE_S = 0.012;
 
+/**
+ * Sidetone ramps, which are much shorter than the playback ones.
+ *
+ * A key press is heard the moment it happens, so a fade in is latency the user
+ * can feel: at 8ms a dot spends a noticeable part of itself getting going, and
+ * on a phone whose audio buffer is already a few tens of milliseconds the two
+ * together are what makes the sidetone feel behind the finger. Three
+ * milliseconds is still short enough not to click and is below the threshold
+ * where the fade is heard as a fade rather than as an onset.
+ */
+const SIDETONE_ATTACK_S = 0.003;
+const SIDETONE_RELEASE_S = 0.006;
+
 export type PlayUnit = {
 	pattern: string;
 	/** Silence after this code, in ms. */
@@ -27,6 +40,7 @@ export class ToneEngine {
 	#sidetone: GainNode | null = null;
 	#play: GainNode | null = null;
 	#freq = 700;
+	#freqSet = Number.NaN;
 	#volume = 0.5;
 	#handles = new Map<number, ReturnType<typeof setTimeout>>();
 	#sleepers = new Map<number, () => void>();
@@ -48,6 +62,11 @@ export class ToneEngine {
 		// clock, and stops matching the code actually sounding. Cut it off
 		// instead of letting it drift.
 		document.addEventListener('visibilitychange', () => {
+			// A context the browser suspended while another app had audio focus
+			// comes back suspended too, and a resume is not free. Ask for it on the
+			// way back in rather than on the next press, which is the one that
+			// would be heard late.
+			if (!document.hidden && !this.ready) this.warm();
 			if (!document.hidden) return;
 			this.stop();
 			// A ramp scheduled now would not run until the clock moved again, and
@@ -73,9 +92,37 @@ export class ToneEngine {
 	}
 
 	setFrequency(hz: number) {
+		if (hz === this.#freqSet) return;
 		this.#freq = hz;
+		this.#freqSet = hz;
 		if (this.#osc && this.#ctx) {
 			this.#osc.frequency.setTargetAtTime(hz, this.#ctx.currentTime, 0.005);
+		}
+	}
+
+	/**
+	 * What the device itself costs between a sound being rendered and being
+	 * heard, in ms. Nothing in the app can beat this number; it is the floor
+	 * under the sidetone, and worth knowing before blaming the code for it.
+	 */
+	get outputLatencyMs() {
+		const l = this.#ctx?.outputLatency as number | undefined;
+		return typeof l === 'number' && l > 0 ? Math.round(l * 1000) : 0;
+	}
+
+	/**
+	 * Get the context ready to sound, without making a sound.
+	 *
+	 * A context the browser suspended while another app held the audio focus
+	 * comes back suspended, and resuming it is not free. Doing that on the way
+	 * back into the page keeps it off the first key press, which is the one
+	 * where a late tone puts the whole app off.
+	 */
+	warm() {
+		try {
+			this.#ensure();
+		} catch {
+			// No audio here. Keying still works, silently.
 		}
 	}
 
@@ -128,7 +175,9 @@ export class ToneEngine {
 			(window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
 		if (!Ctor) throw new Error('WebAudio unavailable');
 
-		const ctx = new Ctor();
+		// Asked for by name rather than left to the default, which is the same
+		// value today but is the whole ball game on a device with a large buffer.
+		const ctx = new Ctor({ latencyHint: 'interactive' });
 		const osc = ctx.createOscillator();
 		osc.type = 'sine';
 		osc.frequency.value = this.#freq;
@@ -199,16 +248,30 @@ export class ToneEngine {
 	 * Sound for as long as the key is down, at whatever length the user chose.
 	 * This is deliberate: the sidetone should reflect the real rhythm they are
 	 * sending, not a normalised dot and dash.
+	 *
+	 * Scheduled at `currentTime`, which is the earliest a tone can start at all.
+	 * Anchoring it to the key's own timestamp instead was tried and does not
+	 * work: the graph renders ahead of the speaker by the device's output
+	 * latency, so the graph position belonging to a press that has already
+	 * happened is in the past, and a parameter event in the past starts now
+	 * anyway. The delay between a finger and a tone is the device's, and no
+	 * amount of scheduling comes out of it.
 	 */
 	startSidetone() {
 		const ctx = this.#ensure();
-		this.#ramp(this.#sidetone!.gain, this.#sidetoneLevel, this.#volume, ctx.currentTime, ATTACK_S);
+		this.#ramp(
+			this.#sidetone!.gain,
+			this.#sidetoneLevel,
+			this.#volume,
+			ctx.currentTime,
+			SIDETONE_ATTACK_S,
+		);
 		this.#sidetoneLevel = this.#volume;
 	}
 
 	stopSidetone() {
 		if (!this.#ctx || !this.#sidetone) return;
-		this.#ramp(this.#sidetone!.gain, this.#sidetoneLevel, 0, this.#ctx.currentTime, RELEASE_S);
+		this.#ramp(this.#sidetone!.gain, this.#sidetoneLevel, 0, this.#ctx.currentTime, SIDETONE_RELEASE_S);
 		this.#sidetoneLevel = 0;
 	}
 

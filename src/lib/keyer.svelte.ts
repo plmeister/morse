@@ -78,12 +78,12 @@ class ReactiveKeyer {
 		return () => this.#listeners.delete(listener);
 	}
 
-	press() {
-		this.#keyer.press();
+	press(at?: number) {
+		this.#keyer.press(at);
 	}
 
-	release() {
-		this.#keyer.release();
+	release(at?: number) {
+		this.#keyer.release(at);
 	}
 
 	/** Send text as Morse on the shared tone engine. */

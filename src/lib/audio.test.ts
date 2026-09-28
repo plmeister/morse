@@ -106,18 +106,28 @@ class FakeParam {
 	cancelled = 0;
 	/** Every ramp, with the level it was scheduled from, which is the part that matters. */
 	ramps: Array<{ from: number; to: number }> = [];
+	/** How long each ramp was given, in seconds. */
+	durations: number[] = [];
+	/** Glide calls, so a redundant one can be told from a real change. */
+	glides = 0;
+	#lastAt = 0;
 	cancelScheduledValues() {
 		this.cancelled++;
 		this.ramps = [];
+		this.durations = [];
 	}
-	setValueAtTime(v: number) {
+	setValueAtTime(v: number, at = this.#lastAt) {
 		this.value = v;
+		this.#lastAt = at;
 	}
-	linearRampToValueAtTime(v: number) {
+	linearRampToValueAtTime(v: number, at = this.#lastAt) {
 		this.ramps.push({ from: this.value, to: v });
+		this.durations.push(at - this.#lastAt);
 		this.value = v;
+		this.#lastAt = at;
 	}
 	setTargetAtTime(v: number) {
+		this.glides++;
 		this.value = v;
 	}
 }
@@ -136,10 +146,18 @@ class FakeAudioContext {
 	// case; everything below is about what happens after the browser takes over.
 	state: AudioContextState = 'running';
 	currentTime = 0;
+	/** What the speaker is playing, which lags where the graph has got to. */
+	heardTime = 0;
+	/** The `performance.now()` reading for that same instant. */
+	heardAt = 0;
+	outputLatency = 0;
+	baseLatency = 0;
 	destination = new FakeNode();
 	resumeCalls = 0;
 	/** In creation order: the sidetone stage first, then playback. */
 	gains: FakeNode[] = [];
+	/** In creation order: the sidetone oscillator first, then playback. */
+	oscs: FakeParam[] = [];
 	#listeners: Listener[] = [];
 
 	#fire() {
@@ -171,8 +189,13 @@ class FakeAudioContext {
 		this.gains.push(node);
 		return node;
 	}
+	getOutputTimestamp() {
+		return { contextTime: this.heardTime, performanceTime: this.heardAt };
+	}
 	createOscillator() {
-		return { type: 'sine', frequency: new FakeParam(), connect: () => new FakeNode(), start: () => {} };
+		const frequency = new FakeParam();
+		this.oscs.push(frequency);
+		return { type: 'sine', frequency, connect: () => new FakeNode(), start: () => {} };
 	}
 }
 
@@ -196,12 +219,85 @@ function install() {
 			(globalThis.document as { hidden: boolean }).hidden = true;
 			for (const l of documentListeners) if (l.type === 'visibilitychange') l.fn();
 		},
+		show: () => {
+			(globalThis.document as { hidden: boolean }).hidden = false;
+			for (const l of documentListeners) if (l.type === 'visibilitychange') l.fn();
+		},
 		restore: () => {
 			delete (globalThis as Record<string, unknown>).window;
 			delete (globalThis as Record<string, unknown>).document;
 		},
 	};
 }
+
+describe('ToneEngine onset', () => {
+	let audio: ReturnType<typeof install>;
+
+	beforeEach(() => {
+		audio = install();
+	});
+	afterEach(() => {
+		audio.restore();
+	});
+
+	it('gets to full volume in a couple of milliseconds', () => {
+		// A long attack is spent before the tone is audible, and the first
+		// milliseconds of a dot are the ones that have to land with the finger.
+		const engine = new ToneEngine();
+		engine.unlock();
+		engine.setVolume(0.5);
+		engine.startSidetone();
+		expect(audio.made[0].gains[0].gain.durations.at(-1)).toBeLessThanOrEqual(0.005);
+	});
+
+	it('builds the context before the first key, not during it', () => {
+		// Creating one is tens of milliseconds on a slow phone, and the first
+		// press is the worst moment to spend it.
+		const engine = new ToneEngine();
+		engine.warm();
+		expect(audio.made).toHaveLength(1);
+		engine.startSidetone();
+		expect(audio.made).toHaveLength(1);
+	});
+
+	it('leaves an unmoved frequency alone', () => {
+		// Every press at the same pitch was gliding the oscillator to the pitch
+		// it was already at, which is a parameter event per keypress for nothing.
+		const engine = new ToneEngine();
+		engine.unlock();
+		engine.setFrequency(700);
+		engine.startSidetone();
+		const glides = audio.made[0].oscs[0].glides;
+		engine.setFrequency(700);
+		expect(audio.made[0].oscs[0].glides).toBe(glides);
+		engine.setFrequency(600);
+		expect(audio.made[0].oscs[0].glides).toBe(glides + 1);
+	});
+
+	it('says what the device itself costs, so the number can be told from the code', () => {
+		const engine = new ToneEngine();
+		expect(engine.outputLatencyMs).toBe(0);
+		engine.unlock();
+		audio.made[0].outputLatency = 0.096;
+		expect(engine.outputLatencyMs).toBe(96);
+	});
+
+	it('warms the context coming back to the page, before the next key', () => {
+		// Backgrounding a tab suspends its context, and the resume is not free
+		// either. Doing it on the way in keeps the first key after switching apps
+		// off the critical path.
+		const engine = new ToneEngine();
+		engine.warm();
+		// Another app taking the audio focus leaves the context suspended, which
+		// is the case worth handling: it exists, so nothing rebuilds it, and it
+		// is the next key press that ends up paying for the resume.
+		audio.made[0].suspend();
+		expect(engine.ready).toBe(false);
+		audio.show();
+		expect(audio.made[0].resumeCalls).toBeGreaterThan(0);
+		expect(engine.ready).toBe(true);
+	});
+});
 
 describe('ToneEngine recovery', () => {
 	let audio: ReturnType<typeof install>;

@@ -10,8 +10,13 @@
 
 /** The part of the keyer these handlers drive, so a fake can stand in for it. */
 export type KeySink = {
-	press(): void;
-	release(): void;
+	/**
+	 * `at` is the event's own timestamp, on the `performance.now()` clock, so the
+	 * hold is measured from when the key went down rather than from when this
+	 * handler got to run.
+	 */
+	press(at?: number): void;
+	release(at?: number): void;
 	clear(): void;
 	deleteLast(): void;
 };
@@ -52,7 +57,7 @@ export function handleKeyDown(e: KeyboardEvent, keyer: KeySink): boolean {
 		return true;
 	}
 	if (isBrowserKey(e)) return false;
-	keyer.press();
+	keyer.press(e.timeStamp);
 	return true;
 }
 
@@ -60,6 +65,6 @@ export function handleKeyDown(e: KeyboardEvent, keyer: KeySink): boolean {
 export function handleKeyUp(e: KeyboardEvent, keyer: KeySink): boolean {
 	if (hasModifier(e) || isTypingTarget(e.target)) return false;
 	if (e.key === 'Escape' || e.key === 'Backspace' || isBrowserKey(e)) return false;
-	keyer.release();
+	keyer.release(e.timeStamp);
 	return true;
 }

@@ -29,13 +29,13 @@
 		} catch {
 			// Not capturable; the release will still arrive on pointerup.
 		}
-		keyer.press();
+		keyer.press(e.timeStamp);
 	}
 
 	function up(e: PointerEvent) {
 		if (activePointer !== e.pointerId) return;
 		activePointer = null;
-		keyer.release();
+		keyer.release(e.timeStamp);
 	}
 
 	// With pointer capture in place, cancel only fires if the browser took the
@@ -43,7 +43,7 @@
 	function cancel(e: PointerEvent) {
 		if (activePointer !== e.pointerId) return;
 		activePointer = null;
-		keyer.release();
+		keyer.release(e.timeStamp);
 	}
 
 	// A key held when the page loses focus would never see its keyup, which

@@ -28,9 +28,9 @@ export type KeyerHooks = {
 	/** Current timings; re-read on every press so live edits take effect. */
 	timings: () => Timings;
 	/** Fired on key down, for the sidetone. */
-	onPress?: () => void;
+	onPress?: (at?: number) => void;
 	/** Fired on key up, before the symbol is classified. */
-	onRelease?: (heldMs: number) => void;
+	onRelease?: (heldMs: number, at?: number) => void;
 	/** Fired when an element is appended to the buffer. */
 	onSymbol?: (symbol: Symbol, heldMs: number) => void;
 	/** Fired when a character is committed, with the raw pattern. */
@@ -105,22 +105,31 @@ export class Keyer {
 		this.#hooks.onChange?.(this.snapshot);
 	}
 
-	press() {
+	/**
+	 * `at` is the input event's own timestamp, on the same clock as `#now`.
+	 *
+	 * It matters for what gets measured rather than for what gets heard. A busy
+	 * phone can run this handler tens of milliseconds after the key went down,
+	 * and timing the hold from the handler would stretch every element by that
+	 * much: a 60ms dot measured over a 100ms handler delay reads as a dash, and
+	 * the keyer would be grading the phone rather than the key.
+	 */
+	press(at?: number) {
 		if (this.pressing) return;
 		this.pressing = true;
-		this.#pressStart = this.#now();
+		this.#pressStart = at ?? this.#now();
 		// Keying again means the pause was intra-character, not a gap.
 		this.#cancelTimers();
-		this.#hooks.onPress?.();
+		this.#hooks.onPress?.(at ?? this.#pressStart);
 		this.#emit();
 	}
 
-	release() {
+	release(at?: number) {
 		if (!this.pressing) return;
-		const now = this.#now();
+		const now = at ?? this.#now();
 		const held = now - this.#pressStart;
 		this.pressing = false;
-		this.#hooks.onRelease?.(held);
+		this.#hooks.onRelease?.(held, at ?? now);
 
 		const threshold = dashThreshold(this.#hooks.timings());
 		const symbol: Symbol = held < threshold ? '.' : '-';
@@ -245,5 +254,10 @@ export function createTestKeyer(hooks: Partial<KeyerHooks> = {}) {
 		now = target;
 	}
 
-	return { keyer, advance, press: () => keyer.press(), release: () => keyer.release() };
+	return {
+		keyer,
+		advance,
+		press: (at?: number) => keyer.press(at),
+		release: (at?: number) => keyer.release(at),
+	};
 }
