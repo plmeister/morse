@@ -201,9 +201,11 @@ class FakeAudioContext {
 
 function install() {
 	const made: FakeAudioContext[] = [];
+	const options: AudioContextOptions[] = [];
 	class Ctor extends FakeAudioContext {
-		constructor() {
+		constructor(opts: AudioContextOptions) {
 			super();
+			options.push(opts);
 			made.push(this);
 		}
 	}
@@ -215,6 +217,7 @@ function install() {
 	};
 	return {
 		made,
+		options,
 		hide: () => {
 			(globalThis.document as { hidden: boolean }).hidden = true;
 			for (const l of documentListeners) if (l.type === 'visibilitychange') l.fn();
@@ -258,6 +261,15 @@ describe('ToneEngine onset', () => {
 		expect(audio.made).toHaveLength(1);
 		engine.startSidetone();
 		expect(audio.made).toHaveLength(1);
+	});
+
+	it('asks for a small buffer by number, not by name', () => {
+		// 'interactive' asks for whatever the platform considers its preferred
+		// size, which on a phone without the low latency audio path is a few
+		// hundred milliseconds. Only a number can ask for less than that.
+		const engine = new ToneEngine();
+		engine.unlock();
+		expect(audio.options[0]?.latencyHint).toBe(0.01);
 	});
 
 	it('leaves an unmoved frequency alone', () => {

@@ -26,6 +26,29 @@ const RELEASE_S = 0.012;
 const SIDETONE_ATTACK_S = 0.003;
 const SIDETONE_RELEASE_S = 0.006;
 
+/**
+ * The buffer asked of the audio device, in seconds.
+ *
+ * The name 'interactive' reads like it asks for a small buffer and it does not:
+ * it asks for whatever the platform considers its preferred size. On a phone
+ * that advertises Android's low-latency audio path that is a few milliseconds,
+ * and on one that does not it is a few hundred, and there is nothing to choose
+ * between them. A number is a request the browser can refuse, so it is the only
+ * form of this that can ask for less than the platform's habit.
+ *
+ * Ten milliseconds is the floor that stays reliable. Reports of much smaller
+ * buffers describe a sine tone that chops up, and a sidetone that breaks up is
+ * worse than one that is late. Against 'interactive' this is a small gain where
+ * the platform was already fast, and on a slow device it is the whole
+ * difference, so it is asked for unconditionally rather than guessed at from a
+ * reading of the platform.
+ *
+ * Firefox is not among the browsers that read this option at all, so none of
+ * the above reaches it. There is nothing to ask for there: what comes back in
+ * `outputLatency` is the device's own buffer, and no wording changes it.
+ */
+const LATENCY_HINT_S = 0.01;
+
 export type PlayUnit = {
 	pattern: string;
 	/** Silence after this code, in ms. */
@@ -175,9 +198,7 @@ export class ToneEngine {
 			(window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
 		if (!Ctor) throw new Error('WebAudio unavailable');
 
-		// Asked for by name rather than left to the default, which is the same
-		// value today but is the whole ball game on a device with a large buffer.
-		const ctx = new Ctor({ latencyHint: 'interactive' });
+		const ctx = new Ctor({ latencyHint: LATENCY_HINT_S });
 		const osc = ctx.createOscillator();
 		osc.type = 'sine';
 		osc.frequency.value = this.#freq;
