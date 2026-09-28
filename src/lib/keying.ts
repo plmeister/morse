@@ -31,10 +31,15 @@ export type KeyingVerdict = {
 	wrongAt: number;
 	/** Index of the first character a word gap was sent in front of, or -1. */
 	spacingAt: number;
+	/**
+	 * What the user actually sent for each character, in the same order as
+	 * {@link marks}, and '' where nothing was sent. A row of dots and dashes on
+	 * its own says a code was wrong without saying what came out of the keyer
+	 * instead, and a mark of wrong on a red box says no more than that. This is
+	 * the half of the feedback that can only come from the run itself.
+	 */
+	actual: string[];
 };
-
-/** The target without the word gaps in it, one entry per character. */
-const letters = (s: string) => s.replace(/\s/g, '');
 
 export type GradeOptions = {
 	/**
@@ -80,6 +85,7 @@ export function gradeText(
 ): KeyingVerdict {
 	const slots: Slot[] = [];
 	const marks: Mark[] = [];
+	const actual: string[] = [];
 	for (const c of target) {
 		if (/\s/.test(c)) {
 			slots.push({ gap: true, char: '', mark: -1 });
@@ -87,6 +93,7 @@ export function gradeText(
 		}
 		slots.push({ gap: false, char: c, mark: marks.length });
 		marks.push('pending');
+		actual.push('');
 	}
 
 	let spacingAt = -1;
@@ -134,6 +141,9 @@ export function gradeText(
 			continue;
 		}
 
+		// Recorded whatever the mark ends up being, since a character sent into the
+		// wrong place is still the character that was sent.
+		actual[slot.mark] = c;
 		if (c === slot.char) {
 			// A mark down for the gap in front of this character stands even though
 			// the character itself arrived correctly, so it is not overwritten.
@@ -142,14 +152,21 @@ export function gradeText(
 			marks[slot.mark] = 'wrong';
 			if (wrongAt < 0) wrongAt = slot.mark;
 			if (opts.stopAtFirst) {
-				return { marks, done: true, correct: false, wrongAt, spacingAt };
+				return { marks, done: true, correct: false, wrongAt, spacingAt, actual };
 			}
 		}
 		si++;
 	}
 
 	const done = si >= slots.length;
-	return { marks, done, correct: done && wrongAt < 0 && spacingAt < 0, wrongAt, spacingAt };
+	return {
+		marks,
+		done,
+		correct: done && wrongAt < 0 && spacingAt < 0,
+		wrongAt,
+		spacingAt,
+		actual,
+	};
 }
 
 /**

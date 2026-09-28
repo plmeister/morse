@@ -29,6 +29,7 @@ describe('gradeKeying', () => {
 			correct: false,
 			wrongAt: -1,
 			spacingAt: -1,
+			actual: [''],
 		});
 	});
 
@@ -163,11 +164,26 @@ describe('gradeText on a passage', () => {
 	// Every letter of a passage, so the marks line up with the word gaps rather
 	// than with the characters in the string.
 	const marks = (v: KeyingVerdict) => v.marks.join(' ');
+	const sent = (v: KeyingVerdict) => v.actual.join('');
 
 	it('waits while nothing has been sent', () => {
 		const v = gradeText('ANT', '');
 		expect(v.done).toBe(false);
 		expect(marks(v)).toBe('pending pending pending');
+		expect(sent(v)).toBe('');
+	});
+
+	it('records what was sent for each character, gaps and all', () => {
+		expect(sent(gradeText('ANT', 'ANT'))).toBe('ANT');
+		// A word gap the target asked for sits between the characters, so there is
+		// nothing to record for it and the two words sit next to each other.
+		expect(sent(gradeText('ANT CAT', 'ANT CAT'))).toBe('ANTCAT');
+		// A wrong code is recorded as itself: the mark says it was wrong and this
+		// says what came out of the keyer instead.
+		expect(sent(gradeText('ANT', 'ANE'))).toBe('ANE');
+		// A run that stopped short leaves the tail empty rather than shifting the
+		// characters that did arrive.
+		expect(sent(gradeText('ANT', 'A'))).toBe('A');
 	});
 
 	it('takes a word gap as sent and calls the question done', () => {

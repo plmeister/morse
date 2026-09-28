@@ -11,7 +11,7 @@
 		type KeyingVerdict,
 		type Mark,
 	} from '$lib/keying';
-	import { encode, encodePhrase, GROUPS, type MorseChar, type MorseGroup } from '$lib/morse';
+	import { encode, encodeText, GROUPS, type MorseChar, type MorseGroup } from '$lib/morse';
 	import { defaultGroups, nextQuestion, type Question, type QuizKind } from '$lib/quiz';
 	import { settings, type QuizMode } from '$lib/settings.svelte';
 	import { stats } from '$lib/stats.svelte';
@@ -26,7 +26,14 @@
 	let playing = $state(false);
 
 	/** Keying practice asks the user to send this, and to send it themselves. */
-	let keying = $state<{ target: string; sent: string; gapAt: number; marks: Mark[] } | null>(null);
+	let keying = $state<{
+		target: string;
+		sent: string;
+		gapAt: number;
+		marks: Mark[];
+		/** What the keyer decoded for each character, to pair with the marks. */
+		actual: string[];
+	} | null>(null);
 	/**
 	 * Bumped for every question. The keying view is remounted on this rather than
 	 * on the target, because the same target twice in a row is ordinary: keyed
@@ -113,6 +120,7 @@
 				sent: '',
 				gapAt: -1,
 				marks: [],
+				actual: [],
 			};
 			return;
 		}
@@ -138,10 +146,6 @@
 		void playQuestion(question, slow);
 	}
 
-	/** The code for a keying target, which is only ever shown as feedback. */
-	const keyPattern = $derived(keying ? encodePhrase(keying.target) : '');
-	/** A passage is drawn as a phrase because it asks for word gaps of its own. */
-	const keyPatternIsPhrase = $derived(passageMode || keyTarget === 'word');
 	const keySent = $derived(keying ? keying.marks.filter((m) => m === 'right').length : 0);
 	const keyTotal = $derived(keying ? keying.marks.length : 0);
 	/** The character a gap was charged to, so the verdict can name it. */
@@ -157,11 +161,56 @@
 	const gapLetter = $derived(
 		keying && keying.gapAt >= 0 ? (targetChars(keying.target)[keying.gapAt]?.char ?? '') : '',
 	);
+
 	/**
-	 * The sending modes wait to be told to go on. Their feedback is the whole
-	 * point of the question, and it is the one thing a timed beat takes away.
+	 * The answer key for a keyed question: every character of the target with its
+	 * own code, marked, and what the keyer decoded in its place where the two
+	 * differ.
+	 *
+	 * A row of dots and dashes on its own is a code the user has to read back to
+	 * find the slip in, which is the one thing feedback should not ask of them.
+	 * Putting the letter above its own code makes the pair the unit, the way an
+	 * option row already does, so a marked box names itself. The decoded
+	 * character goes under the box it came from rather than in a line of its own,
+	 * because in a passage the same letters appear twice over and a sentence of
+	 * what was sent cannot say which was which.
 	 */
-	const autoAdvance = $derived(settings.get('autoAdvance') && !keyingMode);
+	const keyAnswer = $derived.by(() => {
+		if (!keying) return [];
+		type Cell = { gap: true } | { gap: false; char: string; code: string; mark: Mark; sent: string };
+		const cells: Cell[] = [];
+		let at = 0;
+		for (const group of encodeText(keying.target)) {
+			// A word the target asked for, drawn between the words rather than
+			// charged to a character, since the marks do not cover it.
+			if (cells.length > 0) cells.push({ gap: true });
+			for (const c of group.chars) {
+				cells.push({
+					gap: false,
+					char: c.char,
+					code: c.pattern,
+					mark: keying.marks[at] ?? 'pending',
+					sent: keying.actual[at] ?? '',
+				});
+				at++;
+			}
+		}
+		return cells;
+	});
+	/**
+	 * Whether the answered question goes on by itself, which is what decides
+	 * between a beat and a button.
+	 *
+	 * The receiving modes follow the setting. The sending modes follow whether
+	 * there is anything to read: a clean run has no slip to find and no code to
+	 * look up, so making the user tap Next for it is asking them to acknowledge
+	 * nothing. A run with a mistake in it stops and waits, because the answer
+	 * key under the verdict is the one thing a timed beat would take away, and a
+	 * button the user has to find is what makes them look.
+	 */
+	const autoAdvance = $derived(
+		keyingMode ? answer?.correct === true : settings.get('autoAdvance'),
+	);
 
 	function answerWith(index: number) {
 		if (phase !== 'asking' || !question || answer) return;
@@ -176,6 +225,7 @@
 			sent: result.sent,
 			gapAt: result.verdict.spacingAt,
 			marks: result.verdict.marks,
+			actual: result.verdict.actual,
 		};
 		applyAnswer(result.verdict.correct, -1, targetChars(keying.target), result.verdict.marks);
 	}
@@ -509,20 +559,38 @@
 							<span class="muted">You sent</span>
 							<strong>{keying.sent.trim() || 'nothing'}</strong>
 						{/if}
-						<Pattern pattern={keyPattern} size="md" phrase={keyPatternIsPhrase} />
 					{:else if question}
 						{#if answer.correct}
 							Correct
 						{:else}
 							<span class="muted">It was</span><strong>{question.solution}</strong>
 						{/if}
-						<Pattern
-							pattern={question.pattern}
-							size="md"
-							phrase={mode === 'word'}
-						/>
+						<Pattern pattern={question.pattern} size="md" phrase={mode === 'word'} />
 					{/if}
 				</div>
+				{#if keyingMode && keying}
+					<!--
+						The answer key. A row of dots and dashes is a code the user has to
+						read back to find the slip in, which is the one thing feedback should
+						not ask of them, so every character is drawn over its own code and a
+						slipped one says what the keyer decoded in its place.
+					-->
+					<ul class="keyed">
+						{#each keyAnswer as cell, i (i)}
+							{#if cell.gap}
+								<li class="keyed-gap" aria-hidden="true">/</li>
+							{:else}
+								<li class="keyed-cell" class:wrong={cell.mark === 'wrong'} class:gap={cell.mark === 'gap'}>
+									<span class="keyed-char">{cell.char}</span>
+									<Pattern pattern={cell.code} size="sm" />
+									{#if cell.mark === 'wrong' && cell.sent && cell.sent !== cell.char}
+										<span class="keyed-sent"><span class="muted">sent</span> {cell.sent}</span>
+									{/if}
+								</li>
+							{/if}
+						{/each}
+					</ul>
+				{/if}
 				{#if autoAdvance}
 					<p class="hint">Next question shortly…</p>
 				{:else}
@@ -771,6 +839,87 @@
 
 	.verdict p {
 		margin: 0;
+	}
+
+	/* The answer key: one column per character, the letter over its own code, so
+	   the pair is the unit and a marked column names the slip itself.
+
+	   Flex wrap rather than a grid, since a passage is any length and the columns
+	   only need to line up from the left. Capped in height and scrolled inside
+	   rather than left to grow: the longest passage is over fifty columns and a
+	   phone has room for about four rows of them, and a key tall enough to want a
+	   scroll of its own is a key that pushes the Next button off the screen. */
+	.keyed {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		align-items: flex-start;
+		gap: 0.2rem 0.15rem;
+		list-style: none;
+		margin: 0.2rem 0 0;
+		padding: 0;
+		width: 100%;
+		max-width: 34rem;
+		/* Capped against the viewport as well as in absolute terms. A fixed cap
+		   that suits a tall phone puts the Next button below the bottom of a small
+		   one on a long passage, and the page does not scroll to rescue it, which
+		   leaves no way on at all. A fifth of the screen is three rows on the
+		   smallest phone the layout has to survive and five on a tall one. */
+		max-height: min(11rem, 20vh);
+		overflow-y: auto;
+		scrollbar-width: thin;
+	}
+
+	.keyed-cell {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.05rem;
+		padding: 0.1rem 0.15rem 0.2rem;
+		border-radius: 0.3rem;
+		border: 1px solid transparent;
+	}
+
+	.keyed-char {
+		font-size: 1.05rem;
+		font-weight: 650;
+		line-height: 1.1;
+	}
+
+	/* A character sent with the wrong code, and one that kept its point but lost
+	   it to a pause in front, are different faults and are told apart by colour
+	   rather than by another line of text. */
+	.keyed-cell.wrong {
+		border-color: var(--bad);
+		background: var(--bad-soft);
+	}
+
+	.keyed-cell.wrong .keyed-char {
+		color: var(--bad);
+	}
+
+	.keyed-cell.gap {
+		border-color: var(--warn);
+		background: var(--surface);
+	}
+
+	.keyed-cell.gap .keyed-char {
+		color: var(--warn);
+	}
+
+	.keyed-sent {
+		font-size: 0.65rem;
+		line-height: 1.2;
+		color: var(--bad);
+		white-space: nowrap;
+	}
+
+	/* A word gap the target asked for, drawn between the words. The one that was
+	   not asked for is a fault on a character, which is where it is shown. */
+	.keyed-gap {
+		font-size: 0.9rem;
+		color: var(--faint);
+		padding-top: 0.2rem;
 	}
 
 	.quiz-foot {
