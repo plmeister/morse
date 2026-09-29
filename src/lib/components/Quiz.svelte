@@ -323,14 +323,20 @@
 <div class="quiz">
 	{#if phase === 'idle'}
 		<div class="card intro">
-			<h2>Receive practice</h2>
+			<h2>Practice</h2>
 			<p class="muted">
-				Morse is sent, you pick what you heard. Characters you keep missing come back more
-				often, so the session drifts towards whatever you are worst at.
+				Morse is sent and you pick what you heard, or you send it yourself. Characters you
+				keep missing come back more often, so the session drifts towards whatever you are
+				worst at.
 			</p>
 
+			<!-- Two kinds of session, and they are not the same test. One asks what
+			     you can read, the other what you can send, and only the first has an
+			     options row, an answer key read backwards or a replay button. Listing
+			     all four as one set of modes called "Send" said they were variations
+			     of the same thing. -->
 			<fieldset class="modes">
-				<legend class="section-title">Send</legend>
+				<legend class="section-title">Hear it</legend>
 				<label class="mode">
 					<input
 						type="radio"
@@ -357,6 +363,10 @@
 						<em class="hint">Watch the spaces between words.</em>
 					</span>
 				</label>
+			</fieldset>
+
+			<fieldset class="modes">
+				<legend class="section-title">Send it</legend>
 				<label class="mode">
 					<input
 						type="radio"
@@ -383,11 +393,13 @@
 						<em class="hint"
 							>Key whole phrases, word gaps and all. A slip does not end it; every character
 								is marked.</em
-							>
+						>
 					</span>
 				</label>
 			</fieldset>
 
+			<!-- A follow-up to the sending mode above it rather than a mode of its
+			     own, so it sits under it instead of holding a place in the list. -->
 			{#if mode === 'key'}
 				<fieldset class="modes">
 					<legend class="section-title">Send what</legend>
@@ -440,10 +452,10 @@
 			</div>
 
 			<p class="hint">
-				{#if keyingMode}
-					{keyTarget === 'char'
-						? `${poolSize} characters to send`
-						: 'Whole words to send'}
+				{#if passageMode}
+					Whole phrases to send
+				{:else if keyingMode}
+					{keyTarget === 'char' ? `${poolSize} characters to send` : 'Whole words to send'}
 				{:else}
 					{poolSize} characters in the pool · {choices} options per question
 				{/if}
