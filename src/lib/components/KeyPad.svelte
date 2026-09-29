@@ -52,6 +52,37 @@
 		if (activePointer !== null) activePointer = null;
 		keyer.release();
 	}
+
+	/**
+	 * Refuse the browser's own long press menu, which on a phone comes up over the
+	 * key: the loupe, and the callout beside it offering Copy, Look Up and Search.
+	 * A held key is a dash, so that menu lands on the one control the app is asking
+	 * the user to hold, and on iOS Firefox it brings a search box with it.
+	 *
+	 * An action rather than an `ontouchstart` attribute because Svelte registers
+	 * touch listeners as passive, and a passive listener cannot refuse anything.
+	 * `touch-action` already says no to a pan or a pinch over the key, and the
+	 * user-select properties say no to a selection, but neither of those is what
+	 * raises the callout: the engine goes looking for something to select and the
+	 * menu is what it produces, and it does that even where `user-select: none`
+	 * says there is nothing there. So the gesture is refused at the event instead.
+	 *
+	 * Both ends of it, since a quick second tap is a selection of its own. The
+	 * keying is pointer driven, so what is lost is the synthesised mouse events
+	 * and the click, and this control uses none of them.
+	 */
+	function noTouchMenu(node: HTMLElement) {
+		const refuse = (e: Event) => e.preventDefault();
+		const options: AddEventListenerOptions = { passive: false };
+		node.addEventListener('touchstart', refuse, options);
+		node.addEventListener('touchend', refuse, options);
+		return {
+			destroy: () => {
+				node.removeEventListener('touchstart', refuse, options);
+				node.removeEventListener('touchend', refuse, options);
+			},
+		};
+	}
 </script>
 
 <svelte:window onblur={onBlur} />
@@ -73,6 +104,7 @@
 	oncontextmenu={(e) => e.preventDefault()}
 	onselectstart={(e) => e.preventDefault()}
 	ondragstart={(e) => e.preventDefault()}
+	use:noTouchMenu
 >
 	<span class="key-label">KEY</span>
 </div>
@@ -103,7 +135,8 @@
 			inset 0 1px 0 rgb(255 255 255 / 0.3);
 		touch-action: none;
 		/* user-select alone is not enough on a touchscreen: the selection can still
-		   start on the key and drag out into the readout above it. */
+		   start on the key and drag out into the readout above it. Nor is it enough
+		   to keep the long press menu down, which is what the action above is for. */
 		user-select: none;
 		-webkit-user-select: none;
 		-webkit-touch-callout: none;
