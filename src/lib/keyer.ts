@@ -15,10 +15,6 @@ export type KeyerSnapshot = {
 	live: string | undefined;
 	/** Everything decoded so far, including spaces from word gaps. */
 	output: string;
-	/** The most recently completed character. */
-	lastChar: string | undefined;
-	/** Pattern of the most recently completed character, shown in the console. */
-	lastPattern: string | undefined;
 	/** True when there is a committed character to delete. */
 	canDelete: boolean;
 	pressing: boolean;
@@ -63,8 +59,6 @@ function trimLastChar(output: string): string {
 export class Keyer {
 	buffer = '';
 	output = '';
-	lastChar: string | undefined;
-	lastPattern: string | undefined;
 	pressing = false;
 
 	#pressStart = 0;
@@ -94,8 +88,6 @@ export class Keyer {
 			buffer: this.buffer,
 			live: this.buffer ? decode(this.buffer) : undefined,
 			output: this.output,
-			lastChar: this.lastChar,
-			lastPattern: this.lastPattern,
 			canDelete: this.output.length > 0,
 			pressing: this.pressing,
 		};
@@ -158,8 +150,6 @@ export class Keyer {
 		const pattern = this.buffer;
 		const char = decode(pattern);
 		this.buffer = '';
-		this.lastChar = char;
-		this.lastPattern = char === undefined ? undefined : pattern;
 		this.output += char ?? '';
 		this.#hooks.onChar?.(char, pattern);
 		this.#emit();
@@ -190,8 +180,6 @@ export class Keyer {
 		if (!this.output.length) return;
 		this.#cancelTimers();
 		this.output = trimLastChar(this.output);
-		this.lastChar = undefined;
-		this.lastPattern = undefined;
 		this.#emit();
 	}
 
@@ -199,8 +187,6 @@ export class Keyer {
 		this.#cancelTimers();
 		this.buffer = '';
 		this.output = '';
-		this.lastChar = undefined;
-		this.lastPattern = undefined;
 		this.pressing = false;
 		this.#emit();
 	}

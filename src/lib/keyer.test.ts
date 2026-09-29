@@ -55,7 +55,6 @@ describe('characters from gaps', () => {
 		expect(env.keyer.snapshot.output).toBe('');
 		env.advance(1);
 		expect(env.keyer.snapshot.output).toBe('I');
-		expect(env.keyer.snapshot.lastChar).toBe('I');
 	});
 
 	it('keeps keying within a character if the gap is short enough', () => {
@@ -140,7 +139,6 @@ describe('characters from gaps', () => {
 		for (let i = 0; i < 6; i++) tap(env, 250);
 		env.advance(300);
 		expect(env.keyer.snapshot.output).toBe('');
-		expect(env.keyer.snapshot.lastChar).toBeUndefined();
 		for (let i = 0; i < 4; i++) tap(env, 60);
 		env.advance(300);
 		expect(env.keyer.snapshot.output).toBe('H');
@@ -204,12 +202,12 @@ describe('preview and lifecycle', () => {
 		expect(env.keyer.snapshot.output).toBe('I');
 	});
 
-	it('clear wipes buffer, output and last character', () => {
+	it('clear wipes buffer and output', () => {
 		const env = createTestKeyer();
 		tap(env, 60);
 		env.advance(300);
 		env.keyer.clear();
-		expect(env.keyer.snapshot).toMatchObject({ buffer: '', output: '', lastChar: undefined });
+		expect(env.keyer.snapshot).toMatchObject({ buffer: '', output: '' });
 	});
 
 	it('cancels the pending commit when clear is called mid-character', () => {
@@ -325,11 +323,10 @@ describe('taking a character back', () => {
 	it('commits nothing for a pattern that is not a character', () => {
 		const env = createTestKeyer();
 		// Six dots is not a code, so nothing is committed and there is nothing
-		// to pull back into the buffer.
+		// to take back.
 		for (let i = 0; i < 6; i++) tap(env, 60);
 		env.advance(300);
 		expect(env.keyer.snapshot.output).toBe('');
-		expect(env.keyer.snapshot.lastPattern).toBeUndefined();
 		expect(env.keyer.snapshot.canDelete).toBe(false);
 	});
 

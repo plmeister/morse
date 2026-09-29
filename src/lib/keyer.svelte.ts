@@ -9,8 +9,6 @@ function emptySnapshot(): KeyerSnapshot {
 		buffer: '',
 		live: undefined,
 		output: '',
-		lastChar: undefined,
-		lastPattern: undefined,
 		canDelete: false,
 		pressing: false,
 	};

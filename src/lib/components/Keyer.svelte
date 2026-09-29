@@ -32,37 +32,6 @@
 		{/if}
 	</div>
 
-	<!-- The character just committed, and the one control that takes it back.
-	     Always rendered rather than appearing with the first character: this row
-	     sits in the docked console, so a conditional row resized the panel under
-	     the finger and yanked the page above it every time something was keyed.
-
-	     The delete button is a bare cross because the row already says which
-	     character it will remove, and a worded button did not fit beside the
-	     label, the character and its code in a narrow console. -->
-	<div class="last" class:empty={!snap.lastChar}>
-		<span class="last-label">last</span>
-		{#if snap.lastChar}
-			<span class="last-char">{snap.lastChar}</span>
-			{#if snap.lastPattern}
-				<Pattern pattern={snap.lastPattern} size="sm" />
-			{/if}
-		{:else}
-			<span class="last-char none">&mdash;</span>
-		{/if}
-		<span class="spacer"></span>
-		<button
-			class="btn drop"
-			type="button"
-			disabled={!snap.canDelete}
-			onclick={() => keyer.deleteLast()}
-			aria-label="Delete the last character"
-			title="Delete it (Backspace)"
-		>
-			&#10005;
-		</button>
-	</div>
-
 	<!-- What is being keyed right now -->
 	<div class="live">
 		<div class="live-char" class:set={snap.live !== undefined}>
@@ -84,10 +53,22 @@
 
 	<div class="actions">
 		<button class="btn" type="button" onclick={() => keyer.clear()}>Clear</button>
-		<button class="btn" type="button" onclick={() => keyer.flush()}>Send char</button>
 		{#if onsend}
 			<button class="btn btn-primary" type="button" onclick={onsend}>Send text…</button>
 		{/if}
+		<!-- Taking back the last character, kept as a bare cross: it sits in the
+		     row of buttons rather than beside the character it removes, and a
+		     worded button does not fit a narrow console. -->
+		<button
+			class="btn drop"
+			type="button"
+			disabled={!snap.canDelete}
+			onclick={() => keyer.deleteLast()}
+			aria-label="Delete the last character"
+			title="Delete it (Backspace)"
+		>
+			&#10005;
+		</button>
 	</div>
 
 </div>
@@ -131,57 +112,6 @@
 		50% {
 			opacity: 0;
 		}
-	}
-
-	.last {
-		display: flex;
-		align-items: center;
-		gap: 0.45rem;
-		padding: 0.25rem 0.5rem 0.25rem 0.75rem;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-	}
-
-	.last-label {
-		font-size: 0.72rem;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--faint);
-	}
-
-	.last.empty {
-		opacity: 0.5;
-	}
-
-	.last-char.none {
-		color: var(--faint);
-		font-weight: 400;
-	}
-
-	.last-char {
-		flex: none;
-		font-size: 1.05rem;
-		font-weight: 650;
-		color: var(--text);
-		min-width: 0.9rem;
-		text-align: center;
-	}
-
-	.spacer {
-		flex: 1 1 0;
-		min-width: 0;
-	}
-
-	.btn.drop {
-		flex: none;
-		display: grid;
-		place-items: center;
-		width: 2.1rem;
-		height: 2.1rem;
-		padding: 0;
-		font-size: 0.9rem;
-		line-height: 1;
 	}
 
 	.live {
@@ -239,6 +169,18 @@
 		padding: 0 0.4rem;
 	}
 
+	/* After `.actions .btn`, which would otherwise stretch it across the row. */
+	.actions .btn.drop {
+		flex: none;
+		display: grid;
+		place-items: center;
+		width: 2.1rem;
+		height: 2.1rem;
+		padding: 0;
+		font-size: 0.9rem;
+		line-height: 1;
+	}
+
 	/* A short screen cannot spare the room. The output's text is sized to fit its
 	   own box here too, so the console does not jump when the first character
 	   lands. */
@@ -253,10 +195,6 @@
 			font-size: 1.1rem;
 		}
 
-		.last {
-			padding: 0.2rem 0.4rem 0.2rem 0.6rem;
-		}
-
 		.live {
 			padding: 0.25rem 0.5rem;
 		}
@@ -267,7 +205,7 @@
 			font-size: 1.15rem;
 		}
 
-		.btn.drop {
+		.actions .btn.drop {
 			width: 1.95rem;
 			height: 1.95rem;
 		}
