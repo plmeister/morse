@@ -12,6 +12,7 @@
 	import { encode, GROUPS } from '$lib/morse';
 	import { settings } from '$lib/settings.svelte';
 	import { stats } from '$lib/stats.svelte';
+	import { renderMorseWav } from '$lib/wav';
 
 	type Tab = 'key' | 'quiz' | 'stats' | 'settings';
 
@@ -29,6 +30,7 @@
 	let showSend = $state(false);
 	let message = $state('');
 	let sending = $state(false);
+	let saving = $state(false);
 	/** Index into the playable characters, i.e. which one is sounding now. */
 	let sentIndex = $state(-1);
 	let cheatOpen = $state(settings.get('showCheatSheet'));
@@ -124,6 +126,63 @@
 		tone.stop();
 		sending = false;
 		sentIndex = -1;
+	}
+
+	/** A file name that says what was sent without needing to be unique. */
+	function wavName(text: string) {
+		const slug = text
+			.toUpperCase()
+			.replace(/[^A-Z0-9]+/g, '-')
+			.replace(/^-|-$/g, '')
+			.slice(0, 32);
+		return `${slug || 'MORSE'}.wav`;
+	}
+
+	/**
+	 * Render the send to a file and hand it to whatever the platform uses for
+	 * sharing. The share sheet is tried first because on a phone it is the
+	 * difference between the file landing in WhatsApp and the file landing in a
+	 * downloads folder; where it is missing, a download is the honest fallback
+	 * rather than a failure.
+	 */
+	async function saveWav() {
+		const text = message.trim();
+		if (!text || saving) return;
+		saving = true;
+		try {
+			const blob = await renderMorseWav(
+				text,
+				settings.timings,
+				// Full level, not the monitoring volume. The file is going to be
+				// played on somebody else's speakers at a volume they chose, and
+				// a sender who has their own sidetone turned down to a whisper
+				// should not hand over a whisper.
+				1,
+				settings.get('freqHz'),
+			);
+			if (!blob) return;
+			const file = new File([blob], wavName(text), { type: 'audio/wav' });
+			const share = navigator as Navigator & {
+				canShare?: (data: ShareData) => boolean;
+			};
+			if (share.share && share.canShare?.({ files: [file] })) {
+				await share.share({ files: [file], title: 'Morse' });
+				return;
+			}
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = file.name;
+			link.click();
+			// Give the click a turn of the event loop to be read before the blob
+			// goes away underneath it.
+			setTimeout(() => URL.revokeObjectURL(url), 10_000);
+		} catch {
+			// A share sheet dismissed by the user throws, and that is not a
+			// failure worth saying anything about.
+		} finally {
+			saving = false;
+		}
 	}
 
 	function closeSend() {
@@ -276,12 +335,20 @@
 					</p>
 				{/if}
 
-				<div class="row">
+				<div class="row send-row">
 					{#if sending}
 						<button class="btn" type="button" onclick={stopSend}>Stop</button>
 					{:else}
 						<button class="btn" type="button" onclick={closeSend}>Cancel</button>
 					{/if}
+					<button
+						class="btn"
+						type="button"
+						disabled={!message.trim() || sending || saving}
+						onclick={saveWav}
+					>
+						{saving ? 'Saving…' : 'Save WAV'}
+					</button>
 					<div class="spacer"></div>
 					<button class="btn" type="button" onclick={openSend}>Use decoded</button>
 					<button
@@ -299,6 +366,16 @@
 </div>
 
 <style>
+	/* Four buttons do not fit across a 320px phone, and a row that overflows
+	   takes its last button off the screen rather than wrapping, so this one is
+	   allowed to. The spacer is a zero basis item, which means it never
+	   contributes to the overflow that triggers the wrap: the buttons fall where
+	   they fall and the spacer simply fills whatever is left of the line. */
+	.send-row {
+		flex-wrap: wrap;
+		row-gap: 0.5rem;
+	}
+
 	/* A full height column: the header and the docked key hold their space, and
 	   everything between them scrolls. 100dvh rather than 100vh so the mobile
 	   browser chrome coming and going does not resize the pane under the finger. */
