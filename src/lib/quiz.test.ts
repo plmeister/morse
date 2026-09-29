@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WORD_LIST, defaultGroups, nextQuestion, pickWeighted, pool, summarise } from './quiz';
+import { WORD_LIST, defaultGroups, nextQuestion, optionForKey, pickWeighted, pool, summarise } from './quiz';
 import { GROUPS, encode, type MorseGroup } from './morse';
 import type { StatsShape } from './stats.svelte';
 import { needScore, type CharStat } from './stats.svelte';
@@ -476,6 +476,66 @@ describe('confusable distractors', () => {
 				if (q.solution !== answer) continue;
 				const rivals = q.options.filter((o) => o.char !== answer && encode(o.char)!.length === code.length);
 				expect(rivals.length, `${answer} (${code}) was asked with no rival of its length`).toBeGreaterThan(0);
+			}
+		}
+	});
+});
+
+describe('optionForKey', () => {
+	const letters = (...chars: string[]) => chars.map((c) => ({ char: c, pattern: encode(c) ?? '' }));
+
+	it('picks the option carrying the character', () => {
+		expect(optionForKey(letters('I', 'S', 'H'), 's')).toBe(1);
+	});
+
+	it('takes either case', () => {
+		expect(optionForKey(letters('A', 'N'), 'n')).toBe(1);
+		expect(optionForKey(letters('A', 'N'), 'N')).toBe(1);
+	});
+
+	it('does nothing for a character that is not on the row', () => {
+		expect(optionForKey(letters('A', 'N'), 'e')).toBeUndefined();
+	});
+
+	it('does nothing when a key would name two options', () => {
+		// Word mode offers groups, so one letter can sit in two of them. Choosing
+		// between them would answer the question for the user.
+		expect(optionForKey(letters('COPY', 'CANADA'), 'c')).toBeUndefined();
+	});
+
+	it('picks a group by a letter only it carries', () => {
+		expect(optionForKey(letters('COPY', 'ANTENNA'), 'y')).toBe(0);
+	});
+
+	it('sees a group as its letters, gaps and all', () => {
+		expect(optionForKey(letters('R R', 'CQ DE'), 'q')).toBe(1);
+	});
+
+	it('picks punctuation and digits like any other character', () => {
+		expect(optionForKey(letters('?', '5'), '?')).toBe(0);
+		expect(optionForKey(letters('?', '5'), '5')).toBe(1);
+	});
+
+	it('leaves the multi-character keys alone', () => {
+		// 'Enter' replays and 'Escape' belongs to the browser, and neither is an
+		// answer even though a question may well contain an E.
+		expect(optionForKey(letters('A', 'N'), 'Enter')).toBeUndefined();
+		expect(optionForKey(letters('A', 'N'), 'Tab')).toBeUndefined();
+	});
+
+	it('never answers a question with the space between words', () => {
+		expect(optionForKey(letters('R R', 'CQ DE'), ' ')).toBeUndefined();
+	});
+
+	it('answers every character question it is offered', () => {
+		// The shortcut is only worth having if the right letter is never shadowed
+		// by a rival that shares it, which is the one thing that can break it.
+		for (const groups of [['letters'], ['digits'], ['punctuation']] as MorseGroup[][]) {
+			for (let seed = 1; seed <= 60; seed++) {
+				const q = nextQuestion({ groups, mode: 'char', choices: 4, stats: emptyStats(), random: seeded(seed) });
+				for (const [i, option] of q.options.entries()) {
+					expect(optionForKey(q.options, option.char), `${option.char} on seed ${seed}`).toBe(i);
+				}
 			}
 		}
 	});

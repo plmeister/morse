@@ -12,7 +12,8 @@
 		type Mark,
 	} from '$lib/keying';
 	import { encode, encodeText, GROUPS, type MorseChar, type MorseGroup } from '$lib/morse';
-	import { defaultGroups, nextQuestion, type Question, type QuizKind } from '$lib/quiz';
+	import { defaultGroups, nextQuestion, optionForKey, type Question, type QuizKind } from '$lib/quiz';
+	import { isTypingTarget } from '$lib/key-typing';
 	import { settings, type QuizMode } from '$lib/settings.svelte';
 	import { stats } from '$lib/stats.svelte';
 	import { timingsForWpm } from '$lib/timing';
@@ -278,7 +279,7 @@
 		void signature;
 	});
 
-	// Keyboard shortcuts for the options: 1-6.
+	// Keyboard shortcuts for the options: 1-6, or the character that was sent.
 	function onKeyDown(e: KeyboardEvent) {
 		// In the sending modes every key is a dot or a dash, so the option
 		// shortcuts would send the wrong thing entirely. Enter is longer than one
@@ -292,13 +293,25 @@
 			return;
 		}
 		if (phase !== 'asking' || !question || answer) return;
-		const target = e.target as HTMLElement | null;
-		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+		if (isTypingTarget(e.target)) return;
 		const n = Number(e.key);
 		if (Number.isInteger(n) && n >= 1 && n <= question.options.length) {
 			e.preventDefault();
 			answerWith(n - 1);
-		} else if (e.key === ' ' || e.key === 'Enter') {
+			return;
+		}
+		// A letter picks the option carrying it, which is the key a user who has
+		// just read the code in their head reaches for. Held modifiers are left
+		// alone: Ctrl+R and Cmd+R belong to the browser, not to the quiz.
+		if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+			const index = optionForKey(question.options, e.key);
+			if (index !== undefined) {
+				e.preventDefault();
+				answerWith(index);
+				return;
+			}
+		}
+		if (e.key === ' ' || e.key === 'Enter') {
 			e.preventDefault();
 			replay();
 		}
@@ -490,7 +503,8 @@
 			</div>
 			<p class="hint">
 				{mode === 'word' ? 'A whole group, spaces included.' : 'One character.'}
-				Replay as often as you like · keys 1–{question?.options.length} to answer
+				Replay as often as you like · keys 1–{question?.options.length}, or the character
+				itself, to answer
 			</p>
 		</div>
 		{/if}

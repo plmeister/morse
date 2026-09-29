@@ -234,6 +234,35 @@ export function nextQuestion(opts: {
 	};
 }
 
+/**
+ * The option a typed key names, or `undefined` when it names none or several.
+ *
+ * Decoding a character and typing it is the obvious thing to try, and a letter is
+ * a key the hands already know, so the character itself is a second way to answer
+ * beside its number.
+ *
+ * Exactly one option, or nothing at all. Word mode offers groups, so one letter
+ * can sit in two options at once; picking between them would be the app choosing
+ * on the user's behalf, and a question two keys could answer is a question the
+ * numbers still answer. So an ambiguous key does nothing and leaves the row to be
+ * clicked.
+ *
+ * A digit counts as a character here like any other. The number that picks an
+ * option position is the caller's business and comes first; a digit outside that
+ * range is free to mean the character it is.
+ */
+export function optionForKey(options: Option[], key: string): number | undefined {
+	// One character only. 'Enter', 'Escape' and 'Tab' are not answers, and a
+	// space is not either: the word gaps in a group are stripped before matching.
+	if (key.length !== 1) return undefined;
+	const wanted = key.toUpperCase();
+	const hits: number[] = [];
+	for (const [i, option] of options.entries()) {
+		if (option.char.replace(/\s/g, '').includes(wanted)) hits.push(i);
+	}
+	return hits.length === 1 ? hits[0] : undefined;
+}
+
 function shuffle<T>(items: T[], random: () => number = rng): T[] {
 	const out = [...items];
 	for (let i = out.length - 1; i > 0; i--) {
