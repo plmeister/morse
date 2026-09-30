@@ -6,6 +6,7 @@ import { timingsForWpm } from './timing';
 const t = timingsForWpm(15);
 
 type Ramp = { from: number; to: number; at: number; end: number };
+type Level = { value: number; at: number };
 
 /** A stand-in for OfflineAudioContext that records what it was asked to do. */
 function install() {
@@ -15,10 +16,12 @@ function install() {
 		rate: number;
 		freq: number;
 		ramps: Ramp[];
+		levels: Level[];
 	}> = [];
 	let buffer: Float32Array = new Float32Array(0);
 
 	const params: Ramp[] = [];
+	const levels: Level[] = [];
 	const param = {
 		from: 0,
 		to: 0,
@@ -49,6 +52,7 @@ function install() {
 						rate: self.rate,
 						freq: frequency.value,
 						ramps: params.map((p) => ({ ...p })),
+						levels: levels.map((l) => ({ ...l })),
 					});
 				},
 			};
@@ -60,6 +64,7 @@ function install() {
 					setValueAtTime: (value: number, at: number) => {
 						param.from = value;
 						param.at = at;
+						levels.push({ value, at });
 					},
 					linearRampToValueAtTime: (value: number, at: number) => {
 						param.to = value;
@@ -213,6 +218,18 @@ describe('renderMorseWav', () => {
 			expect(audio.made[0].ramps[i].at).toBeCloseTo(seg.at);
 			expect(audio.made[0].ramps[i].end).toBeCloseTo(seg.at + seg.seconds);
 		}
+	});
+
+	it('starts silent, so the lead in adds no tone of its own', async () => {
+		const audio = install();
+		audio.setBuffer(new Float32Array(10));
+		await renderMorseWav('e', t, 1, 700);
+
+		// A GainNode starts at one. Without an explicit zero here the exported
+		// file opens with the lead in at full level and the first dot of the
+		// send is heard as part of a dash.
+		expect(audio.made[0].levels[0]).toEqual({ value: 0, at: 0 });
+		expect(audio.made[0].ramps[0].at).toBeCloseTo(0.06);
 	});
 
 	it('carries the samples through into the file', async () => {

@@ -110,6 +110,13 @@ export async function renderMorseWav(
 	const gain = ctx.createGain();
 	osc.connect(gain).connect(ctx.destination);
 
+	// A fresh GainNode sits at its intrinsic value of one and the oscillator
+	// runs from the very first sample, so the lead in would be 60ms of full
+	// level tone for the first code to land on top of, turning every message
+	// that opens on a dot into one that opens on a dash. Live playback silences
+	// its gain before it schedules anything; an export has to do the same.
+	gain.gain.setValueAtTime(0, 0);
+
 	// The same ramps live playback makes, applied to a clock that starts at zero
 	// instead of at whatever the speaker is currently doing.
 	for (const seg of playEnvelope(units, t, volume, LEAD_IN_S)) {
